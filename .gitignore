@@ -78,3 +78,5 @@ research/
 scan_all_lk_domains.sh
 scan_all_lk.log
 scan_errors.log
+/output
+JISA_SUBMISSION_PHASE1

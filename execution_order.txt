@@ -1,0 +1,582 @@
+================================================================================
+EXECUTION ORDER FOR LK DOMAIN AUDIT PHASE 2 PAPER
+================================================================================
+Research Paper: lk_domain_audit_phase2_passive.tex
+Output Figures Folder: lk_domain_audit_phase_2/figs/
+Date: February 8, 2026
+================================================================================
+
+IMPORTANT NOTES:
+----------------
+1. This is for PASSIVE SCANNING phase (no active penetration testing)
+2. Active scanning requires permission from domain.lk registrar
+3. All figures must be saved to: lk_domain_audit_phase_2/figs/ for LaTeX compilation
+4. Multi-threading is enabled for faster execution (2-5x speedup)
+5. Activate conda base environment before starting: conda activate base
+
+================================================================================
+PHASE 1: DATA COLLECTION (PASSIVE SCANNING)
+================================================================================
+Purpose: Collect passive security data for .lk domains without active probing
+
+Prerequisites:
+--------------
+□ Conda environment activated: conda activate base
+□ Python dependencies installed: pip install -r src/requirements.txt
+□ Data directories exist: state/ and out/ folders
+
+Commands to Execute:
+--------------------
+
+1.1. Scan ac.lk (Academic institutions)
+   Command: python src/app.py --domain ac.lk
+   Output: out/ac.lk/2026-*/*/
+   Duration: ~15-30 minutes
+   Purpose: Collect academic domain infrastructure data
+
+1.2. Scan edu.lk (Educational institutions)
+   Command: python src/app.py --domain edu.lk
+   Output: out/edu.lk/2026-*/*/
+   Duration: ~15-30 minutes
+   Purpose: Collect educational domain data
+
+1.3. Scan gov.lk (Government institutions)
+   Command: python src/app.py --domain gov.lk
+   Output: out/gov.lk/2026-*/*/
+   Duration: ~20-40 minutes
+   Purpose: Collect government infrastructure data
+
+1.4. Scan com.lk (Commercial entities)
+   Command: python src/app.py --domain com.lk
+   Output: out/com.lk/2026-*/*/
+   Duration: ~30-60 minutes
+   Purpose: Collect commercial domain data
+
+1.5. Scan org.lk (Non-profit organizations)
+   Command: python src/app.py --domain org.lk
+   Output: out/org.lk/2026-*/*/
+   Duration: ~15-30 minutes
+   Purpose: Collect NGO/organization data
+
+1.6. Scan net.lk (Network infrastructure)
+   Command: python src/app.py --domain net.lk
+   Output: out/net.lk/2026-*/*/
+   Duration: ~15-30 minutes
+   Purpose: Collect network provider data
+
+1.7. Scan sch.lk (Schools)
+   Command: python src/app.py --domain sch.lk
+   Output: out/sch.lk/2026-*/*/
+   Duration: ~10-20 minutes
+   Purpose: Collect school infrastructure data
+
+1.8. Scan hotel.lk (Hospitality sector)
+   Command: python src/app.py --domain hotel.lk
+   Output: out/hotel.lk/2026-*/*/
+   Duration: ~10-20 minutes
+   Purpose: Collect hospitality sector data
+
+1.9. Scan int.lk (International organizations)
+   Command: python src/app.py --domain int.lk
+   Output: out/int.lk/2026-*/*/
+   Duration: ~5-10 minutes
+   Purpose: Collect international organization data
+
+1.10. Scan grp.lk (Groups)
+   Command: python src/app.py --domain grp.lk
+   Output: out/grp.lk/2026-*/*/
+   Duration: ~5-10 minutes
+   Purpose: Collect group domain data
+
+1.11. Scan soc.lk (Social organizations)
+   Command: python src/app.py --domain soc.lk
+   Output: out/soc.lk/2026-*/*/
+   Duration: ~5-10 minutes
+   Purpose: Collect social organization data
+
+1.12. Scan ngo.lk (NGOs)
+   Command: python src/app.py --domain ngo.lk
+   Output: out/ngo.lk/2026-*/*/
+   Duration: ~5-10 minutes
+   Purpose: Collect NGO data
+
+1.13. Scan ltd.lk (Limited companies)
+   Command: python src/app.py --domain ltd.lk
+   Output: out/ltd.lk/2026-*/*/
+   Duration: ~15-30 minutes
+   Purpose: Collect corporate data
+
+1.14. Scan assn.lk (Associations)
+   Command: python src/app.py --domain assn.lk
+   Output: out/assn.lk/2026-*/*/
+   Duration: ~5-10 minutes
+   Purpose: Collect association data
+
+1.15. Scan web.lk (Web services)
+   Command: python src/app.py --domain web.lk
+   Output: out/web.lk/2026-*/*/
+   Duration: ~10-20 minutes
+   Purpose: Collect web service provider data
+
+1.16. Scan me.lk (Personal domains)
+   Command: python src/app.py --domain me.lk
+   Output: out/me.lk/2026-*/*/
+   Duration: ~10-20 minutes
+   Purpose: Collect personal domain data
+
+ALTERNATIVE: Batch scan all domains (sequential execution)
+   Command: bash run.sh
+   Output: out/*/2026-*/*/
+   Duration: ~4-6 hours (for all domains)
+   Purpose: Automated sequential scanning of all configured domains
+
+Expected Output Files per Domain Scan:
+---------------------------------------
+out/<domain>/2026-<month>-<day>-<time>/
+├── observations_long.csv              # All security observations
+├── subdomain_metrics.csv              # Per-subdomain security metrics
+├── discovered_candidates.csv         # Enumerated subdomains
+├── enumeration_method_counts.csv     # Enumeration technique effectiveness
+├── control_metrics.csv               # Security control pass/fail rates
+├── errors.csv                        # Scan errors and issues
+└── run_metadata.json                 # Scan metadata and statistics
+
+Verification:
+-------------
+After Phase 1 completes, verify:
+□ All domain scan folders created in out/
+□ Each folder contains all 7 required CSV/JSON files
+□ No critical errors in errors.csv files
+□ run_metadata.json shows reasonable subdomain counts
+
+Troubleshooting:
+----------------
+If scan fails:
+1. Check network connectivity
+2. Verify DNS resolver is accessible
+3. Check out/ folder permissions
+4. Review error messages in terminal output
+5. Examine errors.csv for specific domain issues
+
+================================================================================
+PHASE 2: RESEARCH DATA ANALYSIS & VISUALIZATION
+================================================================================
+Purpose: Generate statistical analysis tables and publication-quality figures
+
+Prerequisites:
+--------------
+□ Phase 1 scanning completed successfully
+□ out/ folder contains scan results for multiple domains
+□ Python packages installed: pandas, matplotlib, seaborn
+□ Conda environment active: conda activate base
+
+Commands to Execute:
+--------------------
+
+2.1. Generate Summary Statistics Table
+   Command: python research/generate_summary_stats.py
+   Output: research/tables/summary_statistics.csv
+   Duration: ~5-10 seconds
+   Purpose: Create aggregate statistics across all scanned domains
+   
+   Table Contents:
+   - Total domains scanned
+   - Total subdomains discovered
+   - Average security pass rates
+   - Scan duration statistics
+   - Min/max/median subdomain counts
+
+2.2. Generate Method Comparison Analysis
+   Command: python research/generate_method_comparison.py
+   Output: 
+     - research/tables/method_comparison.csv
+     - research/tables/method_statistics.csv
+     - research/figures/method_effectiveness_bar.png
+     - research/figures/method_effectiveness_heatmap.png
+   Duration: ~10-15 seconds
+   Purpose: Compare effectiveness of enumeration methods
+   
+   Analysis Contents:
+   - Certificate Transparency effectiveness
+   - DNS brute-force results
+   - SRV record discovery
+   - PTR pivot results
+   - Per-method subdomain discovery counts
+
+2.3. Generate Security Posture Analysis
+   Command: python research/generate_security_analysis.py
+   Output:
+     - research/tables/security_posture.csv
+     - research/figures/security_checks_heatmap.png
+     - research/figures/vulnerability_distribution.png
+   Duration: ~10-15 seconds
+   Purpose: Analyze security posture across domains
+   
+   Analysis Contents:
+   - Domain-level pass/fail rates
+   - Common security failures
+   - Security check heatmaps
+   - Vulnerability distribution by type
+
+2.4. Generate ALL Visualizations (Master Script)
+   Command: python research/generate_visualizations.py
+   Output: Executes 2.1, 2.2, and 2.3 in sequence
+   Duration: ~30-40 seconds
+   Purpose: One-command generation of all research outputs
+   
+   This master script runs:
+   ✓ generate_summary_stats.py
+   ✓ generate_method_comparison.py
+   ✓ generate_security_analysis.py
+
+RECOMMENDED: Use command 2.4 for efficiency (runs all analysis in one go)
+
+Expected Output After Phase 2:
+-------------------------------
+research/tables/
+├── summary_statistics.csv           # Table I: Scan Summary
+├── method_comparison.csv            # Table II: Method Effectiveness
+├── method_statistics.csv            # Table III: Method Statistics
+├── security_posture.csv             # Table IV: Security Posture
+└── aggregate_statistics.csv         # Additional aggregate data
+
+research/figures/
+├── method_effectiveness_bar.png     # Figure 1: Method comparison
+├── method_effectiveness_heatmap.png # Figure 2: Method heatmap
+├── security_checks_heatmap.png      # Figure 3: Security heatmap
+└── vulnerability_distribution.png   # Figure 4: Vulnerability chart
+
+Verification:
+-------------
+After Phase 2 completes:
+□ All CSV tables created in research/tables/
+□ All PNG figures created in research/figures/
+□ No error messages during script execution
+□ Figures display correctly (can open PNG files)
+□ CSV tables contain expected data (non-empty)
+
+Quality Checks:
+---------------
+1. Open each figure to verify visual quality
+2. Check table CSV files for completeness
+3. Verify figure dimensions are publication-ready (600+ DPI)
+4. Ensure no missing data indicators (NaN, empty cells)
+
+================================================================================
+PHASE 3: COPY FIGURES TO LATEX FOLDER
+================================================================================
+Purpose: Move generated figures to LaTeX compilation directory
+
+Prerequisites:
+--------------
+□ Phase 2 completed successfully
+□ research/figures/ contains all PNG files
+□ lk_domain_audit_phase_2/figs/ folder exists
+
+Commands to Execute:
+--------------------
+
+3.1. Copy All Figures to Phase 2 Paper Folder
+   Commands (macOS/Linux):
+   
+   cd /Users/lalithk90/Desktop/Reseach_work/domain-security-audit
+   
+   # Copy method comparison figures
+   cp research/figures/method_effectiveness_bar.png lk_domain_audit_phase_2/figs/
+   cp research/figures/method_effectiveness_heatmap.png lk_domain_audit_phase_2/figs/
+   
+   # Copy security analysis figures
+   cp research/figures/security_checks_heatmap.png lk_domain_audit_phase_2/figs/
+   cp research/figures/vulnerability_distribution.png lk_domain_audit_phase_2/figs/
+   
+   # Copy any additional figures (if created)
+   cp research/figures/*.png lk_domain_audit_phase_2/figs/ 2>/dev/null || true
+   
+   Alternative (copy all at once):
+   cp research/figures/*.png lk_domain_audit_phase_2/figs/
+
+3.2. Verify Figures in LaTeX Folder
+   Command: ls -lh lk_domain_audit_phase_2/figs/
+   Expected: All PNG files visible with reasonable file sizes (50KB-500KB)
+
+3.3. Optional: Copy Tables to LaTeX Folder
+   Command: cp research/tables/*.csv lk_domain_audit_phase_2/
+   Purpose: Make CSV tables available for \csvreader or manual table creation
+
+Figure Naming Convention for LaTeX:
+------------------------------------
+Ensure figures are referenced in .tex file as:
+\includegraphics{figs/method_effectiveness_bar.png}
+\includegraphics{figs/method_effectiveness_heatmap.png}
+\includegraphics{figs/security_checks_heatmap.png}
+\includegraphics{figs/vulnerability_distribution.png}
+
+Expected Files in lk_domain_audit_phase_2/figs/ After Phase 3:
+---------------------------------------------------------------
+lk_domain_audit_phase_2/figs/
+├── method_effectiveness_bar.png       # Figure for enumeration comparison
+├── method_effectiveness_heatmap.png   # Heatmap of method performance
+├── security_checks_heatmap.png        # Security check results visualization
+├── vulnerability_distribution.png     # Vulnerability type distribution
+└── [any additional generated figures]
+
+Verification:
+-------------
+□ All required PNG files exist in lk_domain_audit_phase_2/figs/
+□ File sizes are reasonable (not corrupted/empty)
+□ Can open each PNG file successfully
+□ Folder permissions allow LaTeX to read files
+
+================================================================================
+PHASE 4: LATEX COMPILATION
+================================================================================
+Purpose: Compile Phase 2 research paper with integrated figures
+
+Prerequisites:
+--------------
+□ Phases 1, 2, and 3 completed
+□ All figures in lk_domain_audit_phase_2/figs/
+□ LaTeX distribution installed (MacTeX, TeX Live, etc.)
+□ lk_domain_audit_phase2_passive.tex file ready
+
+Commands to Execute:
+--------------------
+
+4.1. Navigate to LaTeX Folder
+   Command: cd lk_domain_audit_phase_2/
+
+4.2. Compile LaTeX Document (First Pass)
+   Command: pdflatex lk_domain_audit_phase2_passive.tex
+   Purpose: Initial compilation to generate .aux files
+   Duration: ~10-20 seconds
+
+4.3. Process Bibliography (if needed)
+   Command: bibtex lk_domain_audit_phase2_passive
+   Purpose: Generate bibliography references
+   Duration: ~5 seconds
+   Note: Skip if paper has no bibliography section yet
+
+4.4. Compile LaTeX Document (Second Pass)
+   Command: pdflatex lk_domain_audit_phase2_passive.tex
+   Purpose: Resolve references and citations
+   Duration: ~10-20 seconds
+
+4.5. Compile LaTeX Document (Third Pass - Final)
+   Command: pdflatex lk_domain_audit_phase2_passive.tex
+   Purpose: Final compilation for complete PDF
+   Duration: ~10-20 seconds
+
+Alternative: Use latexmk (Automated Compilation)
+   Command: latexmk -pdf lk_domain_audit_phase2_passive.tex
+   Purpose: Automatic compilation with all necessary passes
+   Duration: ~30-40 seconds
+
+4.6. View Generated PDF
+   Command: open lk_domain_audit_phase2_passive.pdf (macOS)
+   Alternative: Use your preferred PDF viewer
+
+Expected Output:
+----------------
+lk_domain_audit_phase_2/
+├── lk_domain_audit_phase2_passive.pdf  ← FINAL PAPER
+├── lk_domain_audit_phase2_passive.aux  (auxiliary file)
+├── lk_domain_audit_phase2_passive.log  (compilation log)
+├── lk_domain_audit_phase2_passive.bbl  (bibliography, if used)
+└── figs/                               (figures folder)
+
+Verification:
+-------------
+□ PDF file created successfully
+□ All figures display in PDF correctly
+□ No compilation errors in .log file
+□ PDF page count matches expected length
+□ All sections, figures, and tables present
+□ References and citations formatted correctly
+
+Troubleshooting LaTeX Compilation Errors:
+------------------------------------------
+If compilation fails:
+
+1. Missing Figures:
+   Error: "File 'figs/xyz.png' not found"
+   Solution: Verify figure exists in figs/ folder, check filename spelling
+
+2. Missing Packages:
+   Error: "! LaTeX Error: File 'xyz.sty' not found"
+   Solution: Install missing package via TeX package manager (tlmgr)
+
+3. Syntax Errors:
+   Error: Various LaTeX syntax errors
+   Solution: Check .log file for line numbers, review .tex file syntax
+
+4. Bibliography Errors:
+   Error: Citation warnings or missing references
+   Solution: Ensure .bib file exists, run bibtex, recompile
+
+5. Figure Compilation Issues:
+   Error: Figures not displaying correctly
+   Solution: Check PNG file integrity, verify \includegraphics syntax
+
+================================================================================
+PHASE 5: OPTIONAL - GENERATE PROFESSIONAL REPORTS
+================================================================================
+Purpose: Create professional PDF reports per domain (for stakeholders)
+
+Prerequisites:
+--------------
+□ Phase 1 scanning completed
+□ Scan results available in out/ folder
+
+Commands to Execute (Optional):
+--------------------------------
+
+5.1. Generate Individual Domain Report
+   Command: python src/generate_reports.py --domain <domain_name>
+   Example: python src/generate_reports.py --domain gov.lk
+   Output: out/<domain>/report.pdf
+   Purpose: Create stakeholder-ready security report
+
+5.2. Generate Batch Reports for All Domains
+   Note: Not yet implemented - would require batch PDF generation
+   Future: Use pdf_generator.py with ThreadPoolExecutor
+
+This phase is OPTIONAL and separate from academic paper generation.
+
+================================================================================
+COMPLETE WORKFLOW SUMMARY
+================================================================================
+
+Quick Reference - Full Execution Order:
+----------------------------------------
+
+# Step 1: Activate environment
+conda activate base
+
+# Step 2: Run scans (choose ONE option)
+Option A: Scan all domains automatically
+  bash run.sh
+
+Option B: Scan specific domains manually
+  python src/app.py --domain ac.lk
+  python src/app.py --domain edu.lk
+  python src/app.py --domain gov.lk
+  # ... etc for each domain
+
+# Step 3: Generate research analysis and figures
+python research/generate_visualizations.py
+
+# Step 4: Copy figures to LaTeX folder
+cp research/figures/*.png lk_domain_audit_phase_2/figs/
+
+# Step 5: Compile LaTeX paper
+cd lk_domain_audit_phase_2/
+pdflatex lk_domain_audit_phase2_passive.tex
+pdflatex lk_domain_audit_phase2_passive.tex
+pdflatex lk_domain_audit_phase2_passive.tex
+
+# Step 6: View final paper
+open lk_domain_audit_phase2_passive.pdf
+
+Total Estimated Time:
+---------------------
+- Phase 1 (Scanning): 4-8 hours (all domains) or 15-60 min (single domain)
+- Phase 2 (Analysis): 30-40 seconds
+- Phase 3 (Copy): 5 seconds
+- Phase 4 (LaTeX): 30-60 seconds
+- TOTAL: 4-8 hours for complete workflow
+
+Performance Optimizations Enabled:
+-----------------------------------
+✓ Multi-threading in scanning pipeline (500 DNS workers)
+✓ Parallel CSV reading (4 workers) - 2-3x speedup
+✓ Parallel JSON reading (4 workers) - 2-3x speedup
+✓ Parallel DNS queries (3 workers) - 3-4x speedup
+✓ Async scanning architecture - 10-15x speedup
+
+Expected Research Paper Outputs:
+---------------------------------
+Tables:
+  Table I    : Summary Statistics (domains, subdomains, pass rates)
+  Table II   : Method Comparison (enumeration effectiveness)
+  Table III  : Method Statistics (detailed metrics)
+  Table IV   : Security Posture (domain security scores)
+
+Figures:
+  Figure 1   : Method Effectiveness Bar Chart
+  Figure 2   : Method Effectiveness Heatmap
+  Figure 3   : Security Checks Heatmap
+  Figure 4   : Vulnerability Distribution
+
+================================================================================
+IMPORTANT REMINDERS
+================================================================================
+
+1. ETHICAL CONSIDERATIONS:
+   - This workflow is for PASSIVE scanning only
+   - No active penetration testing without permission
+   - Respects domain.lk terms of service
+   - Uses publicly available DNS/CT log data
+
+2. PERMISSION FOR ACTIVE SCANNING:
+   - Contact domain.lk registrar for permission
+   - Provide research intent and scope
+   - Wait for written approval before active scans
+   - Document permission in paper methodology
+
+3. DATA PRIVACY:
+   - Results contain infrastructure data only
+   - No collection of user data or traffic
+   - Organizational benefit > privacy intrusion
+   - Complies with data protection principles
+
+4. REPRODUCIBILITY:
+   - All scripts use consistent methodology
+   - Results reproducible with same commands
+   - Timestamps in output allow version tracking
+   - Code available for peer review
+
+5. PERFORMANCE:
+   - Multi-threading significantly reduces time
+   - Network speed affects scan duration
+   - Cloud VPS recommended for large-scale scans
+   - Consider rate limiting for ethical scanning
+
+================================================================================
+SUPPORT & TROUBLESHOOTING
+================================================================================
+
+Common Issues and Solutions:
+----------------------------
+
+Issue: "No module named 'pandas'"
+Solution: pip install -r src/requirements.txt
+
+Issue: "Permission denied" when creating directories
+Solution: Check folder permissions, run with appropriate user rights
+
+Issue: "Connection timeout" during scanning
+Solution: Check network connectivity, verify DNS resolver access
+
+Issue: "Figure not found" in LaTeX
+Solution: Verify figure exists in figs/, check filename case sensitivity
+
+Issue: Empty CSV files or no data
+Solution: Rerun scan, check domain accessibility, review error logs
+
+For Additional Help:
+--------------------
+- Review research/README.md for detailed documentation
+- Check research/QUICKSTART_RESEARCH.md for quick start guide
+- Examine research/MULTITHREADING_ANALYSIS.md for performance details
+- Review error logs in out/*/errors.csv files
+
+================================================================================
+END OF EXECUTION ORDER
+================================================================================
+
+Generated: February 8, 2026
+For: LK Domain Audit Phase 2 Research Paper
+Author: Domain Security Research Team
+Version: 1.0
+
+Good luck with your research! 🚀

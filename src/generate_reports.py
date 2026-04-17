@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor
 
 try:
     import pandas as pd
@@ -20,7 +21,7 @@ def load_env_file(env_path: Path = Path(".env")) -> Dict[str, str]:
     env_vars = {}
     if not env_path.exists():
         return env_vars
-    
+
     with env_path.open("r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -31,7 +32,7 @@ def load_env_file(env_path: Path = Path(".env")) -> Dict[str, str]:
             if "=" in line:
                 key, value = line.split("=", 1)
                 env_vars[key.strip()] = value.strip()
-    
+
     return env_vars
 
 
@@ -79,7 +80,7 @@ def md_table(rows: List[List[str]], headers: List[str]) -> str:
 
 def md_df_table(df: pd.DataFrame) -> str:
     """Convert DataFrame to markdown table (for paper tables).
-    
+
     Requires tabulate package: pip install tabulate
     """
     try:
@@ -105,13 +106,13 @@ def pick_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
 def find_run_dirs(root: Path, domain: Optional[str] = None) -> List[Path]:
     """
     Find all run directories. If domain is specified, only find runs for that domain.
-    
+
     Expected pattern:
       root/YYYY-MM-DD/YYYYMMDD_HHMMSS/  (if no domain specified)
       root/{domain}/YYYY-MM-DD/YYYYMMDD_HHMMSS/  (if domain specified)
     """
     run_dirs: List[Path] = []
-    
+
     if domain:
         # Domain-specific search: out/{domain}/YYYY-MM-DD/YYYYMMDD_HHMMSS/
         search_root = root / domain
@@ -119,13 +120,13 @@ def find_run_dirs(root: Path, domain: Optional[str] = None) -> List[Path]:
             return run_dirs
     else:
         search_root = root
-    
+
     for p in search_root.rglob("*"):
         if not p.is_dir():
             continue
         if all((p / f).exists() for f in REQUIRED_FILES):
             run_dirs.append(p)
-    
+
     # deterministic order
     run_dirs.sort()
     return run_dirs
@@ -387,7 +388,7 @@ def build_report(run_dir: Path, out_dir: Path, use_cache: bool) -> Path:
     # ========================================================================
     report_lines.append("---\n")
     report_lines.append("# Publication Tables\n\n")
-    
+
     try:
         # Generate all 13 tables
         tables = {}
@@ -404,7 +405,7 @@ def build_report(run_dir: Path, out_dir: Path, use_cache: bool) -> Path:
         tables["t11"] = table_11_top_passing_checks(ctrl, n=10)
         tables["t12"] = table_12_target_status_overview(disc)
         tables["t13"] = table_13_attempt_rate_analysis(subm)
-        
+
         captions = {
             "t1": "Table 1. Run & dataset overview.",
             "t2": "Table 2. DNS discovery vs TLS evidence aggregation (avoid overclaiming).",
@@ -420,7 +421,7 @@ def build_report(run_dir: Path, out_dir: Path, use_cache: bool) -> Path:
             "t12": "Table 12. Target scan status overview.",
             "t13": "Table 13. Attempt rate distribution analysis.",
         }
-        
+
         for key in ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11", "t12", "t13"]:
             report_lines.append(f"## {captions[key]}\n")
             report_lines.append(md_df_table(tables[key]))
@@ -436,7 +437,7 @@ def build_report(run_dir: Path, out_dir: Path, use_cache: bool) -> Path:
         md_path = out_dir / "report.md"
     else:
         md_path = out_dir / f"{run_dir.parent.name}__{run_dir.name}.md"
-    
+
     md_path.write_text("\n".join(report_lines).strip() + "\n", encoding="utf-8")
 
 
@@ -852,12 +853,12 @@ def table_8_protocol_by_category(ctrl: pd.DataFrame) -> pd.DataFrame:
     category_col = pick_col(ctrl, ["category", "group", "type"])
     if not category_col:
         raise ValueError("control_metrics.csv: can't find category column")
-    
+
     tmp = ctrl.copy()
     for c in ["tested_checks", "total_targets", "passed", "failed", "errors", "pass_rate"]:
         if c in tmp.columns:
             tmp[c] = pd.to_numeric(tmp[c], errors="coerce").fillna(0)
-    
+
     # Group by category
     grouped = tmp.groupby(category_col, dropna=False).agg({
         "total_targets": "sum",
@@ -866,7 +867,7 @@ def table_8_protocol_by_category(ctrl: pd.DataFrame) -> pd.DataFrame:
         "errors": "sum",
         "pass_rate": "mean",
     }).reset_index()
-    
+
     grouped = grouped.rename(columns={
         category_col: "Category",
         "total_targets": "Total tests",
@@ -875,11 +876,11 @@ def table_8_protocol_by_category(ctrl: pd.DataFrame) -> pd.DataFrame:
         "errors": "Errors",
         "pass_rate": "Avg pass rate (%)"
     })
-    
+
     # Round percentages
     grouped["Avg pass rate (%)"] = grouped["Avg pass rate (%)"].round(2)
     grouped = grouped.sort_values("Avg pass rate (%)", ascending=True)
-    
+
     return grouped
 
 
@@ -888,19 +889,19 @@ def table_9_subdomain_pass_rate_distribution(sub: pd.DataFrame) -> pd.DataFrame:
     pass_rate_col = pick_col(sub, ["pass_rate", "passRate"])
     if not pass_rate_col:
         raise ValueError("subdomain_metrics.csv: can't find pass_rate column")
-    
+
     tmp = sub.copy()
     tmp[pass_rate_col] = pd.to_numeric(tmp[pass_rate_col], errors="coerce").fillna(0)
-    
+
     # Create manual bins
-    bins_ranges = [(0, 10), (10, 20), (20, 30), (30, 40), (40, 50), 
+    bins_ranges = [(0, 10), (10, 20), (20, 30), (30, 40), (40, 50),
                    (60, 70), (70, 80), (80, 90), (90, 101)]
-    
+
     counts = []
     for low, high in bins_ranges:
         count = len(tmp[(tmp[pass_rate_col] >= low) & (tmp[pass_rate_col] < high)])
         counts.append({"Pass rate range": f"{low}-{high-1}%", "Subdomain count": count})
-    
+
     return pd.DataFrame(counts)
 
 
@@ -909,13 +910,13 @@ def table_10_check_categories_summary(ctrl: pd.DataFrame) -> pd.DataFrame:
     category_col = pick_col(ctrl, ["category", "group", "type"])
     if not category_col:
         raise ValueError("control_metrics.csv: can't find category column")
-    
+
     tmp = ctrl.copy()
     tmp["count"] = 1
     for c in ["total_targets", "passed", "failed", "errors", "pass_rate"]:
         if c in tmp.columns:
             tmp[c] = pd.to_numeric(tmp[c], errors="coerce").fillna(0)
-    
+
     grouped = tmp.groupby(category_col, dropna=False).agg({
         "count": "size",
         "total_targets": "sum",
@@ -924,7 +925,7 @@ def table_10_check_categories_summary(ctrl: pd.DataFrame) -> pd.DataFrame:
         "errors": "sum",
         "pass_rate": "mean",
     }).reset_index()
-    
+
     grouped = grouped.rename(columns={
         category_col: "Category",
         "count": "Check count",
@@ -934,10 +935,10 @@ def table_10_check_categories_summary(ctrl: pd.DataFrame) -> pd.DataFrame:
         "errors": "Errors",
         "pass_rate": "Avg pass rate (%)"
     })
-    
+
     grouped["Avg pass rate (%)"] = grouped["Avg pass rate (%)"].round(2)
     grouped = grouped.sort_values("Avg pass rate (%)", ascending=True)
-    
+
     return grouped
 
 
@@ -948,23 +949,23 @@ def table_11_top_passing_checks(ctrl: pd.DataFrame, n: int = 10) -> pd.DataFrame
     category = pick_col(ctrl, ["category", "group"])
     pass_rate = pick_col(ctrl, ["pass_rate", "passRate"])
     tested = pick_col(ctrl, ["tested_checks", "tested", "total_targets"])
-    
+
     if not check_id:
         raise ValueError("control_metrics.csv: can't find check_id column")
-    
+
     tmp = ctrl.copy()
     if pass_rate:
         tmp[pass_rate] = pd.to_numeric(tmp[pass_rate], errors="coerce").fillna(0)
     if tested:
         tmp[tested] = pd.to_numeric(tmp[tested], errors="coerce").fillna(0)
-    
+
     # Sort by pass_rate descending (highest first)
     if pass_rate:
         tmp = tmp.sort_values(pass_rate, ascending=False).head(n)
-    
+
     cols = [c for c in [check_id, check_name, category, tested, pass_rate] if c]
     out = tmp[cols].copy()
-    
+
     # Rename for paper readability
     rename = {}
     if check_id:
@@ -978,7 +979,7 @@ def table_11_top_passing_checks(ctrl: pd.DataFrame, n: int = 10) -> pd.DataFrame
     if pass_rate:
         rename[pass_rate] = "Pass rate (%)"
     out = out.rename(columns=rename)
-    
+
     return out
 
 
@@ -987,14 +988,14 @@ def table_12_target_status_overview(disc: pd.DataFrame) -> pd.DataFrame:
     status_col = pick_col(disc, ["scan_status", "status", "state"])
     if not status_col:
         raise ValueError("discovered_candidates.csv: can't find scan_status column")
-    
+
     tmp = disc.copy()
     tmp[status_col] = tmp[status_col].fillna("Unknown")
-    
+
     status_dist = tmp[status_col].value_counts().reset_index()
     status_dist.columns = ["Scan status", "Target count"]
     status_dist = status_dist.sort_values("Target count", ascending=False)
-    
+
     return status_dist
 
 
@@ -1003,19 +1004,19 @@ def table_13_attempt_rate_analysis(sub: pd.DataFrame) -> pd.DataFrame:
     attempt_rate_col = pick_col(sub, ["attempt_rate", "attemptRate"])
     if not attempt_rate_col:
         raise ValueError("subdomain_metrics.csv: can't find attempt_rate column")
-    
+
     tmp = sub.copy()
     tmp[attempt_rate_col] = pd.to_numeric(tmp[attempt_rate_col], errors="coerce").fillna(0)
-    
+
     # Create manual bins
-    bins_ranges = [(0, 10), (10, 20), (20, 30), (30, 40), (40, 50), 
+    bins_ranges = [(0, 10), (10, 20), (20, 30), (30, 40), (40, 50),
                    (60, 70), (70, 80), (80, 90), (90, 101)]
-    
+
     counts = []
     for low, high in bins_ranges:
         count = len(tmp[(tmp[attempt_rate_col] >= low) & (tmp[attempt_rate_col] < high)])
         counts.append({"Attempt rate range": f"{low}-{high-1}%", "Subdomain count": count})
-    
+
     return pd.DataFrame(counts)
 
 
@@ -1059,7 +1060,7 @@ def paper_tables_main() -> int:
 Examples:
   # Generate tables for a specific run
   python generate_reports.py --paper-tables --run-dir out/gov.lk/2026-01-25/20260125_065145
-  
+
   # Specify output file and show top 15 checks
   python generate_reports.py --paper-tables --run-dir out/gov.lk/2026-01-25/20260125_065145 \\
       --out-md my_paper_tables.md --top-n 15
@@ -1144,19 +1145,19 @@ def main() -> int:
 MODES:
   Automatic batch report (default, reads domain from .env):
     python generate_reports.py
-  
+
   Batch report for specific domain:
     python generate_reports.py --domain gov.lk [--root out]
-  
+
   Single-run paper tables:
     python generate_reports.py --paper-tables --run-dir out/gov.lk/2026-01-25/20260125_065145 [--out-md file.md] [--top-n 10]
         """
     )
-    
+
     # Mode selection
     ap.add_argument("--paper-tables", action="store_true",
                     help="Generate publication-ready tables for a single run (requires --run-dir).")
-    
+
     # Batch report arguments
     ap.add_argument("--root", type=str, default="out",
                     help="Root folder containing domain/date/run folders (batch mode, default: out).")
@@ -1164,7 +1165,7 @@ MODES:
                     help="Domain to scan for (batch mode). If not specified, defaults to ac.lk (ignores .env).");
     ap.add_argument("--use-cache", action="store_true",
                     help="Compute optional evidence metrics from cache (batch mode).")
-    
+
     # Paper tables arguments
     ap.add_argument("--run-dir", type=str, default=None,
                     help="Path to one run folder for paper tables (paper-tables mode).")
@@ -1172,27 +1173,27 @@ MODES:
                     help="Output markdown file path (paper-tables mode).")
     ap.add_argument("--top-n", type=int, default=10,
                     help="Top N checks for Table 6 (paper-tables mode, default: 10).")
-    
+
     args = ap.parse_args()
-    
+
     # Dispatch based on mode
     if args.paper_tables:
         if not args.run_dir:
             print("Error: --run-dir is required with --paper-tables", file=sys.stderr)
             return 1
-        
+
         # Reconstruct args for paper_tables_main
         sys.argv = ["generate_reports.py", "--run-dir", args.run_dir]
         if args.out_md:
             sys.argv.extend(["--out-md", args.out_md])
         if args.top_n != 10:
             sys.argv.extend(["--top-n", str(args.top_n)])
-        
+
         return paper_tables_main()
     else:
         # Batch mode (reports for domain runs)
         root = Path(args.root).expanduser().resolve()
-        
+
         # Determine domain
         if args.domain:
             domain = args.domain
@@ -1206,7 +1207,7 @@ MODES:
             else:
                 print(
                     f"📖 Domain defaulting to: {domain} (no .env DOMAIN found)")
-        
+
         # Find all run directories for this domain
         run_dirs = find_run_dirs(root, domain=domain)
         if not run_dirs:
@@ -1214,7 +1215,7 @@ MODES:
             return 2
 
         print(f"Found {len(run_dirs)} run(s) for domain: {domain}\n")
-        
+
         written = 0
         for run_dir in run_dirs:
             try:
