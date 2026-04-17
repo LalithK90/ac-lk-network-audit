@@ -13,53 +13,53 @@ from dotenv import load_dotenv
 
 class Config:
     """Configuration for persistent scanning system.
-    
+
     WHY this exists: Single source of truth for all config.
     All defaults are production-ready for M1 Mac with 16GB RAM.
     """
-    
+
     def __init__(self):
         """Load configuration from .env file."""
         # Load .env from repo root
         repo_root = Path(__file__).parent.parent.parent
         env_file = repo_root / ".env"
-        
+
         if env_file.exists():
             load_dotenv(env_file)
-        
+
         # ===== REQUIRED SETTINGS =====
         self.domain = os.getenv("DOMAIN")
         if not self.domain:
             raise ValueError("DOMAIN must be set in .env file (e.g., DOMAIN=ac.lk)")
-        
+
         # ===== STATE MANAGEMENT =====
         self.state_dir = Path(os.getenv("STATE_DIR", "state"))
         self.out_dir = Path(os.getenv("OUT_DIR", "out"))
-        
+
         # Rescan policy
         self.rescan_hours = int(os.getenv("RESCAN_HOURS", "24"))
         self.error_retry_hours = int(os.getenv("ERROR_RETRY_HOURS", "6"))
         self.lease_minutes = int(os.getenv("LEASE_MINUTES", "30"))
-        
+
         # ===== PARALLEL EXECUTION =====
         # Auto-detect CPU count
         cpu_count = multiprocessing.cpu_count()
-        
+
         # Scanner workers (for probing/checking)
         default_workers = min(64, max(16, cpu_count * 4))
         self.workers = int(os.getenv("WORKERS", default_workers))
-        
+
         # Enumerator workers (for DNS brute-force)
         default_enum_workers = min(128, max(32, cpu_count * 8))
         self.enum_workers = int(os.getenv("ENUM_WORKERS", default_enum_workers))
-        
+
         # Batch sizes
         self.max_scan_batch = int(os.getenv("MAX_SCAN_BATCH", "200"))
-        
+
         # Poll intervals (seconds)
         self.enum_poll_seconds = int(os.getenv("ENUM_POLL_SECONDS", "5"))
         self.scan_poll_seconds = int(os.getenv("SCAN_POLL_SECONDS", "5"))
-        
+
         # ===== NETWORK SETTINGS =====
         self.rate_limit = float(os.getenv("RATE_LIMIT", "0.05"))
         self.dns_timeout = float(os.getenv("DNS_TIMEOUT", "4.0"))
@@ -70,19 +70,26 @@ class Config:
         # Passive-only mode flag: when false, run only public-data methods
         self.allow_active_probes = os.getenv(
             "ALLOW_ACTIVE_PROBES", "true").lower() == "true"
-        
+
         # ===== ENUMERATION =====
         self.use_ct_logs = os.getenv("USE_CT_LOGS", "true").lower() == "true"
         self.use_public_dbs = os.getenv("USE_PUBLIC_DBS", "true").lower() == "true"
         self.use_dns_brute = os.getenv("USE_DNS_BRUTE", "true").lower() == "true"
-        
+        sources_raw = os.getenv(
+            "PUBLIC_DB_SOURCES",
+            "hackertarget,threatcrowd,bufferover,alienvault_otx,anubis,certspotter"
+        )
+        self.public_db_sources = [
+            source.strip().lower() for source in sources_raw.split(",") if source.strip()
+        ]
+
         # ===== OUTPUT =====
         self.enable_excel = os.getenv("ENABLE_EXCEL", "false").lower() == "true"
-        
+
         # Create directories
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # ===== SMART SCANNING (NEW) =====
         self.enable_smart_profiling = os.getenv("ENABLE_SMART_PROFILING", "false").lower() == "true"
         self.max_scan_attempts = int(os.getenv("MAX_SCAN_ATTEMPTS", "3"))
@@ -90,16 +97,16 @@ class Config:
         self.skip_brute_on_wildcard = os.getenv("SKIP_BRUTE_ON_WILDCARD", "false").lower() == "true"
         known_raw = os.getenv("KNOWN_SUBDOMAINS", "")
         self.known_subdomains = [s.strip() for s in known_raw.split(",") if s.strip()]
-    
+
     def get(self, key: str, default=None):
         """Get configuration value by key (dict-like interface).
-        
+
         WHY: Allows config.get('KEY', default) syntax for backward compatibility.
         """
         # Convert key to attribute name (uppercase to lowercase with underscores)
         attr_name = key.lower()
         return getattr(self, attr_name, default)
-    
+
     def to_dict(self) -> dict:
         """Convert config to dict for serialization."""
         return {
@@ -112,6 +119,7 @@ class Config:
             'rate_limit': self.rate_limit,
             'use_ct_logs': self.use_ct_logs,
             'use_public_dbs': self.use_public_dbs,
+            'public_db_sources': self.public_db_sources,
             'use_dns_brute': self.use_dns_brute,
             'allow_active_probes': self.allow_active_probes,
             'enable_smart_profiling': self.enable_smart_profiling,
@@ -119,7 +127,7 @@ class Config:
             'scan_timeout_seconds': self.scan_timeout_seconds,
             'skip_brute_on_wildcard': self.skip_brute_on_wildcard,
         }
-    
+
     def __repr__(self) -> str:
         """Human-readable config summary."""
         return (

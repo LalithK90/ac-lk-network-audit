@@ -96,17 +96,17 @@ logger = logging.getLogger(__name__)
 
 def generate_smart_patterns(include_3char: bool = True) -> List[str]:
     """Generate 18,953 patterns for comprehensive DNS brute-force subdomain discovery.
-    
+
     PATTERN STRATEGY:
     Rather than trying to guess every possible subdomain name, we use a systematic
     approach combining common names with exhaustive character enumeration:
-    
+
     **Exhaustive Character Combinations**:
     - 1-char: a-z (26 subdomains)
     - 2-char: aa-zz (676 subdomains)
     - 3-char: aaa-zzz (17,576 subdomains) - optional, adds time
     - Total: 18,278 systematic patterns
-    
+
     **Common/Semantic Names**:
     - Mail services: mail, webmail, smtp, pop, imap
     - Web services: www, api, rest, gateway
@@ -115,56 +115,56 @@ def generate_smart_patterns(include_3char: bool = True) -> List[str]:
     - Common words: blog, shop, wiki, status, monitor
     - Numbered services: ns1-ns4, db1-db5, app1-app10
     - Total: 200+ common names
-    
+
     EFFECTIVENESS:
     This approach finds a good balance between:
     - Coverage: 18K+ patterns cover most naming schemes
     - Performance: Can run in 2-3 minutes with 500 parallel workers
     - Accuracy: Semantic names catch infrastructure, exhaustive patterns
       catch anything else
-    
+
     WHY NOT JUST COMMON WORDS?
     Common word lists miss organizational naming conventions (api01, srv-dmz-01, etc.).
     Exhaustive enumeration finds those BUT would take hours. Combining both gives
     speed + coverage.
-    
+
     USAGE NOTES:
     - Set include_3char=False to speed up testing (skip 17K patterns)
     - Patterns are deduplicated with common words
     - Results are cached so repeated brute-force doesn't re-query DNS
-    
+
     EDUCATIONAL VALUE:
     DNS brute-force is a classic reconnaissance technique. Pattern generation is
     the art of guessing likely subdomain names. This function shows practical
     thinking: exhaustive is too slow, semantic-only misses things, so combine both.
     """
     patterns = set()
-    
+
     # Single characters (26)
     patterns.update(string.ascii_lowercase)
-    
+
     # Two characters (676)
     for a in string.ascii_lowercase:
         for b in string.ascii_lowercase:
             patterns.add(f"{a}{b}")
-    
+
     # Three characters (17,576) - comprehensive brute-force
     if include_3char:
         for a in string.ascii_lowercase:
             for b in string.ascii_lowercase:
                 for c in string.ascii_lowercase:
                     patterns.add(f"{a}{b}{c}")
-    
+
     # Numbers (110)
     patterns.update(str(i) for i in range(100))
     patterns.update(f"{i:02d}" for i in range(100))
-    
+
     # Number + letter combinations
     for letter in string.ascii_lowercase:
         for num in range(10):
             patterns.add(f"{letter}{num}")
             patterns.add(f"{num}{letter}")
-    
+
     # Common subdomain words (100+)
     common = [
         'www', 'mail', 'webmail', 'smtp', 'pop', 'imap', 'email',
@@ -190,7 +190,7 @@ def generate_smart_patterns(include_3char: bool = True) -> List[str]:
         'about', 'contact', 'careers', 'jobs'
     ]
     patterns.update(common)
-    
+
     return sorted(patterns)
 
 
@@ -200,12 +200,12 @@ SMART_PATTERNS = generate_smart_patterns(include_3char=True)
 
 async def fetch_crtsh_async(domain: str, session: aiohttp.ClientSession, retries: int = 3) -> Set[str]:
     """Fetch subdomains from crt.sh (Certificate Transparency) async.
-    
+
     Args:
         domain: Base domain to search
         session: aiohttp session for requests
         retries: Number of retry attempts
-        
+
     Returns:
         Set of discovered subdomains
     """
@@ -215,7 +215,7 @@ async def fetch_crtsh_async(domain: str, session: aiohttp.ClientSession, retries
         'User-Agent': config.http_user_agent
     }
     results = set()
-    
+
     for attempt in range(1, retries + 1):
         try:
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
@@ -237,91 +237,268 @@ async def fetch_crtsh_async(domain: str, session: aiohttp.ClientSession, retries
                 else:
                     logger.warning(
                         f"crt.sh returned status {response.status} (attempt {attempt}/{retries})")
-                    
+
             # Wait before retry
             if attempt < retries:
                 await asyncio.sleep(1.0 * attempt)
-                
+
         except asyncio.TimeoutError:
             logger.warning(f"crt.sh timeout (attempt {attempt}/{retries})")
         except Exception as e:
             logger.warning(f"crt.sh error: {e} (attempt {attempt}/{retries})")
-            
+
         if attempt < retries:
             await asyncio.sleep(1.0 * attempt)
-    
+
     return results
 
 
+def _is_in_scope_candidate(candidate: str, domain: str) -> bool:
+    """Check if a discovered hostname belongs to the target domain scope."""
+    if not candidate:
+        return False
+
+    hostname = candidate.strip().lower().rstrip('.')
+    base = domain.strip().lower().rstrip('.')
+    return hostname == base or hostname.endswith(f".{base}")
+
+
+def _clean_hostname(raw_value: str) -> str:
+    """Normalize hostname text from external feeds."""
+    hostname = raw_value.strip().lower().rstrip('.')
+    if hostname.startswith('*.'):
+        hostname = hostname[2:]
+    return hostname
+
+
+async def _fetch_hackertarget(domain: str, session: aiohttp.ClientSession,
+                              headers: Dict[str, str]) -> Set[str]:
+    found: Set[str] = set()
+    url = f"https://api.hackertarget.com/hostsearch/?q={quote(domain)}"
+
+    try:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            if response.status != 200:
+                logger.debug(f"HackerTarget returned status {response.status}")
+                return found
+
+            text = await response.text()
+            for line in text.split('\n'):
+                if ',' not in line:
+                    continue
+                hostname = _clean_hostname(line.split(',')[0])
+                if _is_in_scope_candidate(hostname, domain):
+                    found.add(hostname)
+    except asyncio.TimeoutError:
+        logger.debug("HackerTarget timeout")
+    except Exception as exc:
+        logger.debug(f"HackerTarget error: {exc}")
+
+    return found
+
+
+async def _fetch_threatcrowd(domain: str, session: aiohttp.ClientSession,
+                             headers: Dict[str, str]) -> Set[str]:
+    found: Set[str] = set()
+    url = f"https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={quote(domain)}"
+
+    try:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
+            if response.status != 200:
+                logger.debug(f"ThreatCrowd returned status {response.status}")
+                return found
+
+            data = await response.json()
+            for sub in data.get('subdomains', []):
+                if isinstance(sub, str):
+                    hostname = _clean_hostname(sub)
+                    if _is_in_scope_candidate(hostname, domain):
+                        found.add(hostname)
+    except asyncio.TimeoutError:
+        logger.debug("ThreatCrowd timeout")
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.debug(f"ThreatCrowd JSON parse error: {exc}")
+    except Exception as exc:
+        logger.debug(f"ThreatCrowd error: {exc}")
+
+    return found
+
+
+async def _fetch_bufferover(domain: str, session: aiohttp.ClientSession,
+                            headers: Dict[str, str]) -> Set[str]:
+    found: Set[str] = set()
+    url = f"https://dns.bufferover.run/dns?q=.{quote(domain)}"
+
+    try:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=12)) as response:
+            if response.status != 200:
+                logger.debug(f"BufferOver returned status {response.status}")
+                return found
+
+            data = await response.json()
+            raw_entries = []
+            raw_entries.extend(data.get('FDNS_A', []))
+            raw_entries.extend(data.get('RDNS', []))
+
+            for entry in raw_entries:
+                if not isinstance(entry, str):
+                    continue
+                parts = entry.split(',')
+                hostname = _clean_hostname(parts[-1]) if parts else ""
+                if _is_in_scope_candidate(hostname, domain):
+                    found.add(hostname)
+    except asyncio.TimeoutError:
+        logger.debug("BufferOver timeout")
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.debug(f"BufferOver JSON parse error: {exc}")
+    except Exception as exc:
+        logger.debug(f"BufferOver error: {exc}")
+
+    return found
+
+
+async def _fetch_alienvault_otx(domain: str, session: aiohttp.ClientSession,
+                                headers: Dict[str, str]) -> Set[str]:
+    found: Set[str] = set()
+    url = f"https://otx.alienvault.com/api/v1/indicators/domain/{quote(domain)}/passive_dns"
+
+    try:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=12)) as response:
+            if response.status != 200:
+                logger.debug(f"AlienVault OTX returned status {response.status}")
+                return found
+
+            data = await response.json()
+            for item in data.get('passive_dns', []):
+                if not isinstance(item, dict):
+                    continue
+                hostname = _clean_hostname(str(item.get('hostname', '')))
+                if _is_in_scope_candidate(hostname, domain):
+                    found.add(hostname)
+    except asyncio.TimeoutError:
+        logger.debug("AlienVault OTX timeout")
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.debug(f"AlienVault OTX JSON parse error: {exc}")
+    except Exception as exc:
+        logger.debug(f"AlienVault OTX error: {exc}")
+
+    return found
+
+
+async def _fetch_anubis(domain: str, session: aiohttp.ClientSession,
+                        headers: Dict[str, str]) -> Set[str]:
+    found: Set[str] = set()
+    url = f"https://jldc.me/anubis/subdomains/{quote(domain)}"
+
+    try:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=12)) as response:
+            if response.status != 200:
+                logger.debug(f"Anubis returned status {response.status}")
+                return found
+
+            data = await response.json()
+            if isinstance(data, list):
+                for item in data:
+                    if isinstance(item, str):
+                        hostname = _clean_hostname(item)
+                        if _is_in_scope_candidate(hostname, domain):
+                            found.add(hostname)
+    except asyncio.TimeoutError:
+        logger.debug("Anubis timeout")
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.debug(f"Anubis JSON parse error: {exc}")
+    except Exception as exc:
+        logger.debug(f"Anubis error: {exc}")
+
+    return found
+
+
+async def _fetch_certspotter(domain: str, session: aiohttp.ClientSession,
+                             headers: Dict[str, str]) -> Set[str]:
+    found: Set[str] = set()
+    url = (
+        "https://api.certspotter.com/v1/issuances"
+        f"?domain={quote(domain)}&include_subdomains=true&expand=dns_names"
+    )
+
+    try:
+        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
+            if response.status != 200:
+                logger.debug(f"CertSpotter returned status {response.status}")
+                return found
+
+            data = await response.json()
+            if isinstance(data, list):
+                for cert in data:
+                    if not isinstance(cert, dict):
+                        continue
+                    for dns_name in cert.get('dns_names', []):
+                        if isinstance(dns_name, str):
+                            hostname = _clean_hostname(dns_name)
+                            if _is_in_scope_candidate(hostname, domain):
+                                found.add(hostname)
+    except asyncio.TimeoutError:
+        logger.debug("CertSpotter timeout")
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.debug(f"CertSpotter JSON parse error: {exc}")
+    except Exception as exc:
+        logger.debug(f"CertSpotter error: {exc}")
+
+    return found
+
+
 async def fetch_additional_sources_async(domain: str, session: aiohttp.ClientSession) -> Dict[str, Set[str]]:
-    """Fetch subdomains from additional public sources (HackerTarget, ThreatCrowd).
-    
-    These complement crt.sh to catch subdomains without SSL certs.
-    
+    """Fetch subdomains from multiple public passive-intel sources.
+
     Returns:
-        Dict with keys 'hackertarget' and 'threatcrowd', each containing set of discovered subdomains
+        Dict[source_name, discovered_subdomains]
     """
-    results = {
-        'hackertarget': set(),
-        'threatcrowd': set()
-    }
-    
     config = Config()
-    headers = {
-        'User-Agent': config.http_user_agent
+    headers = {'User-Agent': config.http_user_agent}
+    enabled_sources = set(getattr(config, 'public_db_sources', []))
+
+    fetchers = {
+        'hackertarget': _fetch_hackertarget,
+        'threatcrowd': _fetch_threatcrowd,
+        'bufferover': _fetch_bufferover,
+        'alienvault_otx': _fetch_alienvault_otx,
+        'anubis': _fetch_anubis,
+        'certspotter': _fetch_certspotter,
     }
 
-    # Source 1: HackerTarget API
-    try:
-        url = f"https://api.hackertarget.com/hostsearch/?q={quote(domain)}"
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-            if resp.status == 200:
-                text = await resp.text()
-                for line in text.split('\n'):
-                    if ',' in line:
-                        subdomain = line.split(',')[0].strip().lower()
-                        if subdomain and domain in subdomain:
-                            results['hackertarget'].add(subdomain)
-                if results['hackertarget']:
-                    logger.info(f"HackerTarget: {len(results['hackertarget'])} subdomains")
-            else:
-                logger.debug(f"HackerTarget returned status {resp.status}")
-    except asyncio.TimeoutError:
-        logger.debug(f"HackerTarget timeout")
-    except Exception as e:
-        logger.debug(f"HackerTarget error: {e}")
-    
-    # Source 2: ThreatCrowd API
-    try:
-        url = f"https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={quote(domain)}"
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as response:
-            if resp.status == 200:
-                data = await resp.json()
-                if 'subdomains' in data and isinstance(data['subdomains'], list):
-                    for sub in data['subdomains']:
-                        if sub and isinstance(sub, str):
-                            results['threatcrowd'].add(sub.strip().lower())
-                if results['threatcrowd']:
-                    logger.info(f"ThreatCrowd: {len(results['threatcrowd'])} subdomains")
-            else:
-                logger.debug(f"ThreatCrowd returned status {resp.status}")
-    except asyncio.TimeoutError:
-        logger.debug(f"ThreatCrowd timeout")
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.debug(f"ThreatCrowd JSON parse error: {e}")
-    except Exception as e:
-        logger.debug(f"ThreatCrowd error: {e}")
-    
+    if not enabled_sources:
+        enabled_sources = set(fetchers.keys())
+
+    tasks = {
+        name: asyncio.create_task(fetcher(domain, session, headers))
+        for name, fetcher in fetchers.items()
+        if name in enabled_sources
+    }
+
+    if not tasks:
+        return {name: set() for name in fetchers.keys()}
+
+    task_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+
+    results: Dict[str, Set[str]] = {name: set() for name in fetchers.keys()}
+    for source_name, source_result in zip(tasks.keys(), task_results):
+        if isinstance(source_result, set):
+            results[source_name] = source_result
+            if source_result:
+                logger.info(f"{source_name}: {len(source_result)} subdomains")
+        else:
+            logger.debug(f"{source_name} failed: {source_result}")
+
     return results
 
 
 def resolve_host_sync(host: str, timeout: float = 3.0) -> bool:
     """Check if host resolves via DNS (synchronous for thread pool use).
-    
+
     Args:
         host: Hostname to resolve
         timeout: DNS timeout in seconds
-        
+
     Returns:
         True if host resolves, False otherwise
     """
@@ -337,29 +514,29 @@ def resolve_host_sync(host: str, timeout: float = 3.0) -> bool:
 
 def probe_dns_patterns(domain: str, patterns: List[str], max_workers: int = 500) -> Set[str]:
     """Probe subdomain patterns using DNS resolution with multi-threading.
-    
+
     Uses smart pattern generation (18,953 patterns for comprehensive discovery).
-    
+
     Args:
         domain: Base domain
         patterns: List of subdomain patterns to test
         max_workers: Number of concurrent workers (optimized for DNS I/O)
-        
+
     Returns:
         Set of discovered subdomains
     """
     found = set()
-    
+
     def check(pattern: str) -> Optional[str]:
         host = f"{pattern}.{domain}"
         if resolve_host_sync(host):
             return host
         return None
-    
+
     # DNS queries are I/O-bound, can handle massive parallelism
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {executor.submit(check, pattern): pattern for pattern in patterns}
-        
+
         completed = 0
         total = len(futures)
         for future in concurrent.futures.as_completed(futures):
@@ -367,26 +544,26 @@ def probe_dns_patterns(domain: str, patterns: List[str], max_workers: int = 500)
                 result = future.result()
                 if result:
                     found.add(result)
-                
+
                 completed += 1
                 if completed % 1000 == 0:
                     logger.info(f"DNS brute-force progress: {completed}/{total} ({len(found)} found)")
-                    
+
             except Exception as e:
                 logger.debug(f"DNS probe error: {e}")
-    
+
     logger.info(f"DNS brute-force complete: {len(found)} subdomains resolved")
     return found
 
 
 async def is_http_active_async(host: str, session: aiohttp.ClientSession, timeout: float = 10.0) -> bool:
     """Check if host responds on HTTP or HTTPS.
-    
+
     Args:
         host: Hostname to check
         session: aiohttp session
         timeout: Request timeout
-        
+
     Returns:
         True if host responds to HTTP/HTTPS requests
     """
@@ -395,7 +572,7 @@ async def is_http_active_async(host: str, session: aiohttp.ClientSession, timeou
         'User-Agent': config.http_user_agent
     }
     urls = [f"https://{host}", f"http://{host}"]
-    
+
     for url in urls:
         try:
             async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=timeout),
@@ -408,13 +585,13 @@ async def is_http_active_async(host: str, session: aiohttp.ClientSession, timeou
             return True
         except Exception:
             continue
-    
+
     return False
 
 
 class TargetEnumerator:
     """Discovers targets (subdomains) to scan using multiple discovery methods.
-    
+
     5-Layer Discovery Strategy:
     1. Certificate Transparency (crt.sh)
     2. Public DNS databases (HackerTarget, ThreatCrowd)
@@ -422,10 +599,10 @@ class TargetEnumerator:
     4. HTTP/HTTPS active verification
     5. Cache results for 24 hours
     """
-    
+
     def __init__(self, domain: str, cache: Cache, config: dict):
         """Initialize enumerator.
-        
+
         Args:
             domain: Base domain to enumerate
             cache: Cache for storing enumeration results
@@ -436,10 +613,10 @@ class TargetEnumerator:
         self.config = config
         self.max_dns_workers = getattr(config, 'dns_workers', 500)
         self.max_http_workers = getattr(config, 'http_workers', 200)
-    
+
     async def enumerate_async(self) -> List[ScanTarget]:
         """Enumerate all targets for the domain (async version).
-        
+
         Returns sorted, deduplicated list of ScanTargets with comprehensive discovery.
         """
         logger.info(f"="*80)
@@ -450,16 +627,16 @@ class TargetEnumerator:
         if not allow_active:
             logger.info(
                 "Passive-only mode: using public data sources only (CT logs, public DBs, seeds).")
-        
+
         # Check cache first (unless force rescan)
         if not getattr(self.config, 'force_rescan', False):
             cached_targets, cached_sources = self._from_cache()
             if cached_targets:
                 logger.info(f"✓ Loaded {len(cached_targets)} targets from cache (24hr TTL)")
                 return self._to_scan_targets(cached_targets, cached_sources)
-        
+
         all_discovered = set()
-        
+
         # Track discovery methods for statistics
         method_counts = {
             'apex_domain': 0,
@@ -472,7 +649,7 @@ class TargetEnumerator:
             'crawl_lite': 0,
             'ptr_reverse_dns': 0
         }
-        
+
         # Track source attribution per subdomain
         subdomain_sources = {}  # fqdn -> list of discovery methods
 
@@ -480,7 +657,7 @@ class TargetEnumerator:
         all_discovered.add(self.domain)
         subdomain_sources[self.domain] = ['apex_domain']
         method_counts['apex_domain'] = 1
-        
+
         # [0/5] Load XLSX seeds (existing security reports)
         logger.info("")
         logger.info("[0/5] Loading seeds from existing XLSX security reports...")
@@ -493,11 +670,11 @@ class TargetEnumerator:
             logger.info(f"      ✓ XLSX Seeds: {len(xlsx_seeds)} subdomains from previous reports")
         else:
             logger.info(f"      → No XLSX files found (will rely on other methods)")
-        
+
         # Create aiohttp session for async requests
         timeout = aiohttp.ClientTimeout(total=30)
         connector = aiohttp.TCPConnector(limit=100, limit_per_host=10)
-        
+
         async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
             # EARLY WILDCARD DETECTION (before brute-force)
             # WHY: If domain has wildcard DNS, brute-force will find 18,953 false positives
@@ -512,18 +689,18 @@ class TargetEnumerator:
                     skip_brute = True
                 else:
                     logger.info(f"      ✓ No wildcard DNS - proceeding with brute-force")
-            
+
             # PARALLEL DATA GATHERING (Layers 1-3)
             logger.info("")
             logger.info("[1-4/6] Parallel data gathering (CT logs + Public DBs + DNS brute-force)")
             if not skip_brute:
                 logger.info(f"         This will test {len(SMART_PATTERNS):,} patterns (~2-3 minutes)...")
             logger.info("")
-            
+
             # Run CT logs and public sources in parallel
             ct_task = asyncio.create_task(fetch_crtsh_async(self.domain, session))
             public_task = asyncio.create_task(fetch_additional_sources_async(self.domain, session))
-            
+
             if allow_active and not skip_brute:
                 # Run DNS brute-force in thread pool (blocking operation)
                 loop = asyncio.get_event_loop()
@@ -546,7 +723,7 @@ class TargetEnumerator:
                     ct_task, public_task, return_exceptions=True
                 )
                 dns_results = set()
-            
+
             # Safely merge results
             if isinstance(ct_results, set):
                 all_discovered.update(ct_results)
@@ -556,30 +733,30 @@ class TargetEnumerator:
                 logger.info(f"      ✓ Certificate Transparency: {len(ct_results)} subdomains")
             else:
                 logger.warning(f"      ✗ Certificate Transparency failed: {ct_results}")
-            
-            if isinstance(public_results, dict):
-                # Merge both HackerTarget and ThreatCrowd results
-                hackertarget_found = public_results.get('hackertarget', set())
-                threatcrowd_found = public_results.get('threatcrowd', set())
-                
-                all_discovered.update(hackertarget_found)
-                all_discovered.update(threatcrowd_found)
-                
-                for fqdn in hackertarget_found:
-                    subdomain_sources.setdefault(
-                        fqdn, []).append('hackertarget')
-                for fqdn in threatcrowd_found:
-                    subdomain_sources.setdefault(
-                        fqdn, []).append('threatcrowd')
 
-                method_counts['hackertarget'] = len(hackertarget_found)
-                method_counts['threatcrowd'] = len(threatcrowd_found)
-                
-                total_public = len(hackertarget_found) + len(threatcrowd_found)
-                logger.info(f"      ✓ Public databases: {total_public} subdomains (HT: {len(hackertarget_found)}, TC: {len(threatcrowd_found)})")
+            if isinstance(public_results, dict):
+                total_public = 0
+                source_summary = []
+
+                for source_name, source_found in public_results.items():
+                    if not isinstance(source_found, set):
+                        continue
+
+                    all_discovered.update(source_found)
+                    for fqdn in source_found:
+                        subdomain_sources.setdefault(fqdn, []).append(source_name)
+
+                    method_counts[source_name] = len(source_found)
+                    total_public += len(source_found)
+                    source_summary.append(f"{source_name}:{len(source_found)}")
+
+                logger.info(
+                    "      ✓ Public databases: "
+                    f"{total_public} subdomains ({', '.join(source_summary)})"
+                )
             else:
                 logger.warning(f"      ✗ Public databases failed: {public_results}")
-            
+
             if isinstance(dns_results, set):
                 all_discovered.update(dns_results)
                 for fqdn in dns_results:
@@ -588,7 +765,7 @@ class TargetEnumerator:
                 logger.info(f"      ✓ DNS brute-force: {len(dns_results)} subdomains")
             else:
                 logger.warning(f"      ✗ DNS brute-force failed: {dns_results}")
-            
+
             if allow_active:
                 # NEW: SRV record pivoting (parallel with other methods)
                 logger.info(f"      → Running SRV record enumeration...")
@@ -698,14 +875,14 @@ class TargetEnumerator:
                     "Passive-only mode: Skipping DNS brute-force, SRV, HTTP reachability tests, crawling, and PTR pivots.")
                 active_subdomains = []
                 inactive_subdomains = sorted(all_discovered)
-        
+
         # CRITICAL: Normalize all discoveries (punycode, lowercase, dedup)
         logger.info("")
         logger.info(f"[6/6] Normalizing {len(all_discovered)} discoveries...")
         logger.info("      (punycode, lowercase, trailing dot removal, deduplication)")
         all_discovered = normalize_fqdn_set(all_discovered, self.domain)
         logger.info(f"      ✓ {len(all_discovered)} normalized unique FQDNs")
-        
+
         # Statistics summary
         logger.info("")
         logger.info("="*80)
@@ -716,17 +893,17 @@ class TargetEnumerator:
         logger.info(f"  Inactive (DNS only):         {len(inactive_subdomains)}")
         logger.info("="*80)
         logger.info("")
-        
+
         # Cache results
         self._to_cache(all_discovered, method_counts, subdomain_sources)
-        
+
         # Return all discovered (both active and inactive)
         # Scanner will handle failures gracefully
         return self._to_scan_targets(all_discovered, subdomain_sources)
 
     def _to_scan_targets(self, fqdns: Set[str], sources_map: Dict[str, List[str]] = None) -> List[ScanTarget]:
         """Convert set of FQDNs to sorted list of ScanTargets.
-        
+
         Args:
             fqdns: Set of discovered FQDNs
             sources_map: Optional mapping of fqdn -> list of discovery methods
@@ -744,16 +921,16 @@ class TargetEnumerator:
         # Sort for deterministic ordering
         targets.sort(key=lambda t: t.fqdn)
         return targets
-    
+
     def _from_cache(self) -> tuple:
         """Load targets from cache.
-        
+
         Returns:
             Tuple of (set of FQDNs, dict of sources) or (empty set, empty dict)
         """
         cache_key = f"enumeration:{self.domain}"
         cached = self.cache.get(cache_key)
-        
+
         if cached and 'targets' in cached:
             targets = set(cached['targets'])
             sources = cached.get('subdomain_sources', {})
@@ -763,7 +940,7 @@ class TargetEnumerator:
 
     def _to_cache(self, targets: Set[str], method_counts: Dict[str, int] = None, subdomain_sources: Dict[str, List[str]] = None) -> None:
         """Save targets to cache (24 hour TTL).
-        
+
         Args:
             targets: Set of discovered FQDNs
             method_counts: Statistics of discoveries per method
