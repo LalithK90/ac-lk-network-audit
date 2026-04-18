@@ -633,6 +633,278 @@ def export_publication_artifacts(
     return tables_dir, created_figures, summary_path
 
 
+def find_latest_run_dirs_per_domain(root: Path) -> List[Path]:
+    """Find the latest valid run directory for each domain under root."""
+    run_dirs: List[Path] = []
+    if not root.exists():
+        return run_dirs
+
+    excluded_dirs = {
+        "cache",
+        "logs",
+        "aggregate_publication",
+        "aggregate_publication_latest",
+    }
+
+    for child in sorted(root.iterdir()):
+        if not child.is_dir():
+            continue
+        if child.name.startswith(".") or child.name in excluded_dirs:
+            continue
+        domain_runs = find_run_dirs(root, domain=child.name)
+        if domain_runs:
+            run_dirs.append(domain_runs[-1])
+
+    return run_dirs
+
+
+def aggregate_control_metrics(ctrl: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate control metrics by check identity when possible."""
+    if ctrl.empty:
+        return pd.DataFrame()
+
+    key_cols = [c for c in ["check_id", "check_name", "category"] if c in ctrl.columns]
+    if not key_cols:
+        return ctrl
+
+    tmp = ctrl.copy()
+    numeric_cols = [
+        c for c in ["failed", "errors", "passed", "total_targets", "tested_checks", "pass_rate"]
+        if c in tmp.columns
+    ]
+
+    for col in numeric_cols:
+        tmp[col] = pd.to_numeric(tmp[col], errors="coerce").fillna(0)
+
+    agg_spec = {col: "sum" for col in numeric_cols if col != "pass_rate"}
+
+    grouped = tmp.groupby(key_cols, dropna=False).agg(agg_spec).reset_index()
+
+    if "passed" in grouped.columns and "failed" in grouped.columns:
+        denom = grouped["passed"] + grouped["failed"]
+        grouped["pass_rate"] = ((grouped["passed"] / denom.replace(0, pd.NA)) * 100).round(2)
+        grouped["pass_rate"] = grouped["pass_rate"].fillna(0)
+    elif "pass_rate" in tmp.columns:
+        grouped["pass_rate"] = (
+            tmp.groupby(key_cols, dropna=False)["pass_rate"].mean().reset_index(drop=True)
+        )
+    else:
+        grouped["pass_rate"] = 0
+
+    return grouped
+
+
+def extract_domain_group(run_dir: Path, root: Path) -> str:
+    """Extract domain group from a run path relative to aggregation root."""
+    try:
+        rel = run_dir.relative_to(root)
+        return rel.parts[0] if rel.parts else "unknown"
+    except ValueError:
+        return run_dir.parents[1].name if len(run_dir.parents) > 1 else "unknown"
+
+
+def min_iso_datetime(values: List[str]) -> str:
+    """Return earliest valid ISO datetime string, ignoring invalid placeholders."""
+    parsed: List[Tuple[pd.Timestamp, str]] = []
+    for value in values:
+        if not value or value == "NA":
+            continue
+        ts = pd.to_datetime(value, errors="coerce", utc=True)
+        if pd.isna(ts):
+            continue
+        parsed.append((ts, value))
+    if not parsed:
+        return "NA"
+    parsed.sort(key=lambda item: item[0])
+    return parsed[0][1]
+
+
+def max_iso_datetime(values: List[str]) -> str:
+    """Return latest valid ISO datetime string, ignoring invalid placeholders."""
+    parsed: List[Tuple[pd.Timestamp, str]] = []
+    for value in values:
+        if not value or value == "NA":
+            continue
+        ts = pd.to_datetime(value, errors="coerce", utc=True)
+        if pd.isna(ts):
+            continue
+        parsed.append((ts, value))
+    if not parsed:
+        return "NA"
+    parsed.sort(key=lambda item: item[0])
+    return parsed[-1][1]
+
+
+def run_aggregate_publication(
+    root: Path,
+    aggregate_out: Optional[Path],
+    top_n: int,
+    latest_only: bool,
+) -> int:
+    """Build one aggregate publication package across domain-group runs."""
+    run_dirs = find_latest_run_dirs_per_domain(root) if latest_only else find_run_dirs(root)
+    if not run_dirs:
+        print(f"No run folders found under: {root}")
+        return 2
+
+    if aggregate_out is None:
+        aggregate_out = root / "aggregate_publication"
+
+    aggregate_out.mkdir(parents=True, exist_ok=True)
+
+    disc_frames: List[pd.DataFrame] = []
+    enum_frames: List[pd.DataFrame] = []
+    obs_frames: List[pd.DataFrame] = []
+    subm_frames: List[pd.DataFrame] = []
+    ctrl_frames: List[pd.DataFrame] = []
+    err_frames: List[pd.DataFrame] = []
+    run_summaries: List[Dict] = []
+
+    for run_dir in run_dirs:
+        domain = extract_domain_group(run_dir, root)
+        run_id = run_dir.name
+
+        disc = try_read_csv(run_dir / "discovered_candidates.csv")
+        if not disc.empty:
+            disc = disc.copy()
+            disc["domain_group"] = domain
+            disc["run_id"] = run_id
+            disc_frames.append(disc)
+
+        enum = try_read_csv(run_dir / "enumeration_method_counts.csv")
+        if not enum.empty:
+            enum = enum.copy()
+            enum["domain_group"] = domain
+            enum["run_id"] = run_id
+            enum_frames.append(enum)
+
+        obs = try_read_csv(run_dir / "observations_long.csv")
+        if not obs.empty:
+            obs = obs.copy()
+            obs["domain_group"] = domain
+            obs["run_id"] = run_id
+            obs_frames.append(obs)
+
+        subm = try_read_csv(run_dir / "subdomain_metrics.csv")
+        if not subm.empty:
+            subm = subm.copy()
+            subm["domain_group"] = domain
+            subm["run_id"] = run_id
+            subm_frames.append(subm)
+
+        ctrl = try_read_csv(run_dir / "control_metrics.csv")
+        if not ctrl.empty:
+            ctrl = ctrl.copy()
+            ctrl["domain_group"] = domain
+            ctrl["run_id"] = run_id
+            ctrl_frames.append(ctrl)
+
+        errs = try_read_csv(run_dir / "errors.csv")
+        if not errs.empty:
+            errs = errs.copy()
+            errs["domain_group"] = domain
+            errs["run_id"] = run_id
+            err_frames.append(errs)
+
+        meta = load_metadata(run_dir / "run_metadata.json")
+        run_summaries.append({
+            "domain_group": domain,
+            "run_id": meta.get("run_id", run_id),
+            "started_at": meta.get("started_at", "NA"),
+            "finished_at": meta.get("finished_at", "NA"),
+            "total_candidates": meta.get("total_candidates", len(disc)),
+            "scanned_count": meta.get("scanned_count", 0),
+            "allow_active_probes": meta.get("config", {}).get("allow_active_probes", False),
+        })
+
+    disc_all = pd.concat(disc_frames, ignore_index=True) if disc_frames else pd.DataFrame()
+    enum_all = pd.concat(enum_frames, ignore_index=True) if enum_frames else pd.DataFrame()
+    obs_all = pd.concat(obs_frames, ignore_index=True) if obs_frames else pd.DataFrame()
+    subm_all = pd.concat(subm_frames, ignore_index=True) if subm_frames else pd.DataFrame()
+    ctrl_all_raw = pd.concat(ctrl_frames, ignore_index=True) if ctrl_frames else pd.DataFrame()
+    ctrl_all = aggregate_control_metrics(ctrl_all_raw)
+    err_all = pd.concat(err_frames, ignore_index=True) if err_frames else pd.DataFrame()
+
+    if has_columns(enum_all, ["discovery_method", "subdomain_count"]):
+        enum_all = enum_all.copy()
+        enum_all["subdomain_count"] = pd.to_numeric(enum_all["subdomain_count"], errors="coerce").fillna(0)
+        enum_all = (
+            enum_all.groupby("discovery_method", dropna=False, as_index=False)["subdomain_count"]
+            .sum()
+            .sort_values("subdomain_count", ascending=False)
+        )
+
+    aggregate_meta = {
+        "run_id": "aggregate_publication",
+        "domain": "all-domain-groups",
+        "root_domain": "all-domain-groups",
+        "started_at": min_iso_datetime([r["started_at"] for r in run_summaries]),
+        "finished_at": max_iso_datetime([r["finished_at"] for r in run_summaries]),
+        "duration_seconds": "NA",
+        "targets_total": int(len(disc_all)),
+        "runs_included": len(run_summaries),
+        "domains_included": sorted({r["domain_group"] for r in run_summaries}),
+        "notes": "Aggregate publication package generated across multiple domain groups",
+    }
+
+    tables = generate_publication_tables(
+        run_dir=aggregate_out,
+        meta=aggregate_meta,
+        disc=disc_all,
+        obs=obs_all,
+        errs=err_all,
+        ctrl=ctrl_all,
+        enum=enum_all,
+        subm=subm_all,
+        top_n=top_n,
+    )
+
+    tables_dir = export_tables_csv(tables, aggregate_out)
+    created_figures = generate_publication_figures(
+        run_dir=aggregate_out,
+        disc=disc_all,
+        enum=enum_all,
+        obs=obs_all,
+        ctrl=ctrl_all,
+        subm=subm_all,
+        errs=err_all,
+    )
+    summary_path = write_research_summary(
+        run_dir=aggregate_out,
+        meta=aggregate_meta,
+        disc=disc_all,
+        enum=enum_all,
+        created_figures=created_figures,
+        tables=tables,
+    )
+
+    build_markdown(aggregate_out, tables, aggregate_out / "paper_tables.md")
+
+    pd.DataFrame(run_summaries).to_csv(aggregate_out / "runs_included.csv", index=False)
+    (aggregate_out / "aggregate_metadata.json").write_text(
+        json.dumps(aggregate_meta, indent=2), encoding="utf-8"
+    )
+    if not disc_all.empty:
+        disc_all.to_csv(aggregate_out / "discovered_candidates_aggregate.csv", index=False)
+    if not enum_all.empty:
+        enum_all.to_csv(aggregate_out / "enumeration_method_counts_aggregate.csv", index=False)
+    if not obs_all.empty:
+        obs_all.to_csv(aggregate_out / "observations_long_aggregate.csv", index=False)
+    if not subm_all.empty:
+        subm_all.to_csv(aggregate_out / "subdomain_metrics_aggregate.csv", index=False)
+    if not ctrl_all.empty:
+        ctrl_all.to_csv(aggregate_out / "control_metrics_aggregate.csv", index=False)
+    if not err_all.empty:
+        err_all.to_csv(aggregate_out / "errors_aggregate.csv", index=False)
+
+    print(f"✓ Aggregate publication package generated: {aggregate_out}")
+    print(f"  Runs included: {len(run_summaries)}")
+    print(f"  Tables: {tables_dir}")
+    print(f"  Figures: {aggregate_out / 'figs'} ({len(created_figures)})")
+    print(f"  Summary: {summary_path}")
+    return 0
+
+
 def build_report(run_dir: Path, out_dir: Path, use_cache: bool) -> Path:
     obs = try_read_csv(run_dir / "observations_long.csv")
     subm = try_read_csv(run_dir / "subdomain_metrics.csv")
@@ -1517,7 +1789,7 @@ Requirements:
         if args.publication:
             export_publication_artifacts(run_dir, meta, disc, obs, err, ctrl, enum, sub, top_n=args.top_n)
         print(f"✓ Wrote paper tables: {out_md}")
-        print(f"\nGenerated 7 tables from run: {run_dir.name}")
+        print(f"\nGenerated 13 tables from run: {run_dir.name}")
         return 0
     except Exception as e:
         print(f"Error writing output: {e}", file=sys.stderr)
@@ -1537,6 +1809,9 @@ MODES:
   Batch report for specific domain:
     python generate_reports.py --domain gov.lk [--root out]
 
+    Aggregate publication package across domain groups:
+        python generate_reports.py --aggregate-publication [--root out] [--aggregate-out out/aggregate_publication]
+
   Single-run paper tables:
     python generate_reports.py --paper-tables --run-dir out/gov.lk/2026-01-25/20260125_065145 [--out-md file.md] [--top-n 10]
         """
@@ -1555,6 +1830,12 @@ MODES:
                     help="Compute optional evidence metrics from cache (batch mode).")
     ap.add_argument("--publication", action="store_true",
                     help="Export publication artifacts (tables CSV, PNG figures, research summary).")
+    ap.add_argument("--aggregate-publication", action="store_true",
+                    help="Generate one aggregate publication package across domain-group runs.")
+    ap.add_argument("--aggregate-out", type=str, default=None,
+                    help="Output folder for aggregate publication package (default: <root>/aggregate_publication).")
+    ap.add_argument("--aggregate-all-runs", action="store_true",
+                    help="Use all runs for aggregation instead of latest run per domain group.")
 
     # Paper tables arguments
     ap.add_argument("--run-dir", type=str, default=None,
@@ -1565,6 +1846,18 @@ MODES:
                     help="Top N checks for Table 6 (paper-tables mode, default: 10).")
 
     args = ap.parse_args()
+
+    if args.aggregate_publication:
+        if args.paper_tables:
+            print("Error: --aggregate-publication cannot be combined with --paper-tables", file=sys.stderr)
+            return 1
+        aggregate_out = Path(args.aggregate_out).expanduser().resolve() if args.aggregate_out else None
+        return run_aggregate_publication(
+            root=Path(args.root).expanduser().resolve(),
+            aggregate_out=aggregate_out,
+            top_n=args.top_n,
+            latest_only=not args.aggregate_all_runs,
+        )
 
     # Dispatch based on mode
     if args.paper_tables:
