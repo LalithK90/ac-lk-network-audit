@@ -79,15 +79,15 @@
 
 %% Abstract
 \begin{abstract}
-National-scale measurements of publicly visible domain infrastructure remain limited, particularly in developing-country contexts where cybersecurity policy is often shaped in the absence of baseline evidence. This study addresses that gap through a passive enumeration audit of Sri Lankan domain infrastructure across 16 second-level domain categories managed under \texttt{nic.lk}. Using Certificate Transparency logs and public vulnerability intelligence sources, we identify 10{,}561 unique subdomains and examine their distribution across government, education, commercial, academic, and civil-society sectors. The results show strong source concentration, with Certificate Transparency contributing 99.85\% of discovered assets and public database sources contributing the remaining 0.15\%. The study provides a reproducible national baseline for Sri Lanka's externally visible naming infrastructure and offers an empirical foundation for longitudinal monitoring, governance-oriented prioritization, and future authorized active security assessment.
+National-scale measurements of publicly visible domain infrastructure remain limited, particularly in developing-country contexts where cybersecurity policy is often shaped in the absence of baseline evidence. This study addresses that gap through a passive enumeration audit of Sri Lankan domain infrastructure across 16 second-level domain categories managed under \texttt{nic.lk}. Using Certificate Transparency logs and public vulnerability intelligence sources, we identify 10{,}638 discovered candidates and examine their distribution across government, education, commercial, academic, and civil-society sectors. The aggregate output shows strong source concentration, with Certificate Transparency contributing 10{,}558 candidates (99.25\%), HackerTarget contributing 104 (0.98\%), apex-domain aggregation contributing 16 (0.15\%), and Cert Spotter contributing 1 (0.01\%). The study provides a reproducible national baseline for Sri Lanka's externally visible naming infrastructure and offers an empirical foundation for longitudinal monitoring, governance-oriented prioritization, and future authorized active security assessment.
 \end{abstract}
 
 %%Research highlights
 \begin{highlights}
 \item National-scale passive baseline across all 16 Sri Lankan second-level domain categories under \texttt{nic.lk}
-\item 10,561 unique subdomains identified through legally conservative passive public-data collection
-\item Certificate Transparency dominates passive discovery (99.85\%); public databases add 0.15\%
-\item Educational infrastructure is the largest sectoral share (\texttt{sch.lk}: 4,235; 40.1\%)
+\item 10,638 discovered candidates identified through legally conservative passive public-data collection
+\item Certificate Transparency dominates passive discovery (10,558 candidates; 99.25\%)
+\item Educational infrastructure is the largest sectoral share (\texttt{sch.lk}: 4,235; 39.81\%)
 \item Reproducible passive-only workflow for national-scale infrastructure measurement and future longitudinal monitoring
 \end{highlights}
 
@@ -136,7 +136,7 @@ This work makes four distinct contributions to the cybersecurity research litera
 
 \begin{enumerate}
     \item \textbf{National baseline:} Establishes a reproducible passive baseline for Sri Lanka's externally visible domain infrastructure.
-    \item \textbf{Methodological evidence:} Quantifies the relative contribution of passive public sources at national scale using 10,561 identified subdomains.
+    \item \textbf{Methodological evidence:} Quantifies the relative contribution of passive public sources at national scale using 10,638 discovered candidates.
     \item \textbf{Sectoral comparison:} Provides descriptive cross-sector evidence on how publicly visible naming infrastructure is distributed across government, education, academic, commercial, and civil-society categories.
     \item \textbf{Replicable framework:} Demonstrates a legally conservative, ethically grounded, and transferable workflow for national-scale passive infrastructure assessment.
 \end{enumerate}
@@ -265,28 +265,32 @@ Where public DNS-related metadata were available through passive sources, they w
 
 \textbf{Source Distribution and Efficacy Analysis:}
 
-Our enumeration effort across 16 Sri Lankan TLDs revealed significant heterogeneity in data source contribution, as shown in Table \ref{tab:source_metrics}. Certificate Transparency logs (crt.sh aggregation service) emerged as the dominant discovery source, contributing 10,545 domains (99.85\% of enumerated subdomains). In contrast, public vulnerability databases (HackerTarget, ThreatCrowd aggregated) provided only 16 additional unique domains via apex\_domain records, representing 0.15\% supplementary coverage.
+Our aggregate enumeration effort across 16 Sri Lankan TLDs revealed significant heterogeneity in data source contribution, as shown in Table \ref{tab:source_metrics}. Certificate Transparency logs (crt.sh aggregation service) emerged as the dominant discovery source, contributing 10,558 candidates (99.25\% of the aggregate baseline). HackerTarget contributed 104 candidates (0.98\%), apex-domain aggregation contributed 16 candidates (0.15\%), and Cert Spotter contributed 1 candidate (0.01\%). The remaining configured passive methods returned zero candidates in this passive-only aggregate run.
 
 \begin{table}[H]
 \centering
-\caption{Passive Data Source Contribution Summary}
+\caption{Aggregate Passive Enumeration Method Contribution}
 \label{tab:source_metrics}
 \begin{tabular}{|l|r|r|p{4cm}|}
 \hline
 Source & Domains Found & Percentage & Interpretation \\
 \hline
-Certificate Transparency & 10,545 & 99.85\% & Dominant discovery source for publicly visible HTTPS-related names \\
+Certificate Transparency (ct\_logs) & 10,558 & 99.25\% & Dominant discovery source for publicly visible HTTPS-related names \\
 \hline
-Public Vulnerability DBs & 16 & 0.15\% & Supplementary public-source coverage \\
+HackerTarget & 104 & 0.98\% & Secondary passive source with limited additional coverage \\
 \hline
-Combined Unique Set & 10,561 & 100.0\% & Aggregate passive enumeration baseline \\
+Apex-domain aggregation & 16 & 0.15\% & Small supplementary contribution from aggregated public records \\
+\hline
+Cert Spotter & 1 & 0.01\% & Negligible supplementary contribution \\
+\hline
+Combined aggregate set & 10,638 & 100.0\% & Aggregate passive enumeration baseline \\
 \hline
 \end{tabular}
 \end{table}
 
 \textbf{Multi-Source Overlap Analysis:}
 
-Cross-referencing source coverage across all 10,561 enumerated domains reveals 100\% single-source discovery: no domain appears in both CT logs and public vulnerability databases. This observation suggests complementary rather than redundant coverage, with CT logs capturing all domains under HTTPS certificate infrastructure, while public databases primarily aggregate apex domain records or actively scanned vulnerabilities. The complete absence of multi-source overlap indicates these data sources target fundamentally different signal sources in the domain discovery space.
+At aggregate level, the configured passive methods contribute highly uneven coverage rather than balanced overlap. The exported enumeration summary shows that CT-derived discovery overwhelmingly shapes the baseline, while other passive sources provide only marginal supplementary yield. This pattern indicates that the observed national baseline is method-dependent and should be interpreted as a CT-led passive visibility snapshot rather than an exhaustive census of all publicly reachable services.
 
 \textbf{Passive-Only Interpretation and Limitations:}
 
@@ -294,7 +298,7 @@ Because the enumeration workflow relies on historical certificate data and publi
 
 \textbf{Confidence Distribution and Source Reliability:}
 
-Due to the passive enumeration approach, discovered domains are categorized primarily as Medium Confidence (CT log presence, n=10,545) or Low Confidence (apex\_domain records from public databases, n=16). Medium-confidence domains have undergone formal certificate authority validation and are logged in immutable, auditable CT logs. Low-confidence domains (public database records) are community-contributed and subject to potential staleness or errors. This stratification reflects source reliability rather than organizational legitimacy or operational status.
+The aggregate publication package also includes a confidence-distribution visualization, but confidence labels should be interpreted as source-derived confidence rather than proof of current operational state. In this paper, confidence is therefore used only as descriptive metadata attached to passive discovery records.
 
 \subsection{Study Design}
 
@@ -346,11 +350,11 @@ This study employs \textbf{purely passive methodology}:
 
 \subsection{Dataset Overview}
 
-Table \ref{tab:summary} presents the overall infrastructure summary of our findings from passive enumeration of Certificate Transparency logs and public data sources.
+Table \ref{tab:summary} reproduces the aggregate run overview exported for the publication package and provides the baseline context for the passive-only analysis.
 
 \begin{table}[H]
 \centering
-\caption{Passive Enumeration Infrastructure Summary}
+\caption{Aggregate Run Overview for the Publication Package}
 \label{tab:summary}
 \begin{tabular}{|l|r|}
 \hline
@@ -358,135 +362,139 @@ Metric & Value \\
 \hline
 Total Domains Scanned & 16 TLDs \\
 \hline
-Total Subdomains Enumerated (Passive) & 10,561 \\
+Runs Included & 16 \\
 \hline
-Enumeration Duration & $\sim$4 hours \\
+Total Discovered Candidates & 10,638 \\
 \hline
-Data Collection Date & January 2026 \\
+Total Observations & 0 \\
+\hline
+Aggregate Run Date & 2026-04-18 \\
 \hline
 Methodology & Passive-only \\
 \hline
-Primary Source & Certificate Transparency logs \\
+Target Scan Status & never for all candidates \\
 \hline
-Supplementary Source & Public vulnerability databases \\
+Enumeration Methods Configured & 13 \\
 \hline
 \end{tabular}
 \end{table}
 
 \subsection{Per-Domain Subdomain Distribution}
 
-Table \ref{tab:distribution} shows the subdomain population across all TLD categories discovered through passive enumeration.
+Table \ref{tab:distribution} summarizes the domain-group distribution reconstructed from the aggregate run manifest included in the publication package.
 
 \begin{table*}[htbp]
 \centering
-\caption{Subdomain Population by TLD Category (Passive Enumeration)}
+\caption{Discovered Candidates by Domain Group in the Aggregate Run}
 \label{tab:distribution}
 \begin{tabular}{|l|l|r|r|p{5cm}|}
 \hline
-TLD & Category & Subdomains & \% of Total & Remarks \\
+TLD & Category & Candidates & \% of Total & Remarks \\
 \hline
-sch.lk & Schools & 4,235 & 40.1\% & Largest category, educational dominance \\
+sch.lk & Schools & 4,235 & 39.81\% & Largest observed domain group in the aggregate passive baseline \\
 \hline
-com.lk & Commercial & 1,267 & 12.0\% & Private sector, diverse services \\
+com.lk & Commercial & 1,267 & 11.91\% & Largest commercial naming footprint in the aggregate run \\
 \hline
-edu.lk & Educational & 1,228 & 11.6\% & Universities and higher education \\
+edu.lk & Educational & 1,228 & 11.54\% & Major higher-education naming footprint \\
 \hline
-org.lk & Organizations & 1,144 & 10.8\% & NGOs, civil society, nonprofits \\
+gov.lk & Government & 1,163 & 10.93\% & Public-sector naming footprint across ministries and agencies \\
 \hline
-gov.lk & Government & 1,127 & 10.7\% & Ministries, agencies, public sectors \\
+org.lk & Organizations & 1,144 & 10.75\% & Civil-society and nonprofit-oriented naming footprint \\
 \hline
-web.lk & Web Services & 590 & 5.6\% & Web hosting, service providers \\
+web.lk & Web Services & 590 & 5.55\% & Web-service and hosting-oriented domain group \\
 \hline
-ac.lk & Academic & 508 & 4.8\% & Research, higher education \\
+ac.lk & Academic & 547 & 5.14\% & Academic and research institutional naming footprint \\
 \hline
-hotel.lk & Hotels & 389 & 3.7\% & Tourism, hospitality sector \\
+hotel.lk & Hotels & 389 & 3.66\% & Tourism and hospitality naming footprint \\
 \hline
-ltd.lk & Limited Companies & 20 & 0.2\% & Incorporated businesses \\
+ltd.lk & Limited Companies & 20 & 0.19\% & Small domain-group contribution \\
 \hline
-assn.lk & Associations & 16 & 0.2\% & Professional associations \\
+assn.lk & Associations & 16 & 0.15\% & Small domain-group contribution \\
 \hline
-grp.lk & Groups & 12 & 0.1\% & Business groups, consortia \\
+grp.lk & Groups & 12 & 0.11\% & Small domain-group contribution \\
 \hline
-ngo.lk & NGOs & 10 & 0.1\% & Development organizations \\
+ngo.lk & NGOs & 10 & 0.09\% & Small domain-group contribution \\
 \hline
-soc.lk & Societies & 9 & 0.1\% & Social organizations \\
+soc.lk & Societies & 9 & 0.08\% & Small domain-group contribution \\
 \hline
-me.lk & Personal & 4 & 0.0\% & Individual domains \\
+me.lk & Personal & 6 & 0.06\% & Small domain-group contribution \\
 \hline
-int.lk & International & 1 & 0.0\% & International organizations \\
+int.lk & International & 1 & 0.01\% & Minimal observed presence \\
 \hline
-net.lk & Network & 1 & 0.0\% & ISPs, network operators \\
+net.lk & Network & 1 & 0.01\% & Minimal observed presence \\
 \hline
-\textbf{TOTAL} & & \textbf{10,561} & \textbf{100\%} & Passive enumeration baseline \\
+\textbf{TOTAL} & & \textbf{10,638} & \textbf{100\%} & Aggregate passive enumeration baseline \\
 \hline
 \end{tabular}
 \end{table*}
 
 \subsection{Enumeration Method Effectiveness}
 
-Table \ref{tab:methods} presents the coverage analysis of different enumeration methods for the passive enumeration baseline.
+Table \ref{tab:methods} summarizes the scan-status overview exported with the aggregate publication package.
 
 \begin{table}[H]
 \centering
-\caption{Passive Enumeration Method Coverage Analysis}
+\caption{Aggregate Target Scan Status Overview}
 \label{tab:methods}
-\begin{tabular}{|l|r|r|p{3cm}|}
+\begin{tabular}{|l|r|p{6cm}|}
 \hline
-Method & Found & \% & Status \\
+Scan Status & Target Count & Interpretation \\
 \hline
-CT Logs & 10,545 & 99.85\% & Primary source \\
-\hline
-Public DBs (apex) & 16 & 0.15\% & Supplementary \\
-\hline
-Total Unique & 10,561 & 100.0\% & Combined \\
-\hline
-DNS Resolution & N/A & N/A & Passive check \\
-\hline
-Passive DNS validation & Not performed & - & Outside phase-1 scope \\
-\hline
-DNS Brute-force & 0 & 0\% & Disabled \\
-\hline
-Crawl-Lite (HTTP) & 0 & 0\% & Disabled \\
+never & 10,638 & All candidates remained unscanned in the aggregate passive-only run; protocol-level observations are therefore unavailable in this package \\
 \hline
 \end{tabular}
 \end{table}
 
-\textbf{Key Finding:} Certificate Transparency logs are the dominant passive enumeration source for Sri Lankan domains, accounting for 99.85\% of discovered subdomains.
+\textbf{Key Finding:} Certificate Transparency logs are the dominant passive enumeration source for Sri Lankan domains, accounting for 99.25\% of discovered candidates in the aggregate run.
 
 \begin{figure}[ht]
 \centering
-\includegraphics[width=0.9\textwidth]{figures/method_effectiveness_bar_revised.pdf}
-\caption{Enumeration Method Effectiveness by TLD Category showing Certificate Transparency log dominance (>99\%) across all sectors.}
+\includegraphics[width=0.9\textwidth]{../out/aggregate_publication_latest/figs/fig_enum_methods_bar.png}
+\caption{Enumeration method contribution across discovered candidates in the aggregate passive run.}
 \label{fig:method_bar}
 \end{figure}
 
 \begin{figure}[ht]
 \centering
-\includegraphics[width=0.9\textwidth]{figures/method_effectiveness_heatmap_revised.pdf}
-\caption{Heatmap of Method Effectiveness Across Domains showing granular coverage overlap patterns.}
-\label{fig:method_heatmap}
+\includegraphics[width=0.9\textwidth]{../out/aggregate_publication_latest/figs/fig_discovery_method_share.png}
+\caption{Relative share of discovered candidates contributed by each enumeration method in the aggregate passive run.}
+\label{fig:method_share}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{../out/aggregate_publication_latest/figs/fig_scan_status_overview.png}
+\caption{Aggregate scan-status overview showing that the publication package corresponds to a passive-only run with no protocol-level scans performed.}
+\label{fig:scan_status}
+\end{figure}
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\textwidth]{../out/aggregate_publication_latest/figs/fig_confidence_distribution.png}
+\caption{Confidence distribution assigned to passive discovery records in the aggregate publication package.}
+\label{fig:confidence_distribution}
 \end{figure}
 
 \subsection{Sector Analysis}
 
-\textbf{Educational Sector (40.1\% of infrastructure):}
+\textbf{Educational Sector (39.81\% of infrastructure):}
 \begin{itemize}
     \item Schools and colleges (sch.lk) dominate with 4,235 subdomains
     \item Indicates extensive digitalization across Sri Lankan education system
     \item Highlights a large concentration of externally visible naming infrastructure relevant to education-sector governance
 \end{itemize}
 
-\textbf{Government Sector (10.7\% of infrastructure):}
+\textbf{Government Sector (10.93\% of infrastructure):}
 \begin{itemize}
-    \item 1,127 government subdomains across ministries and agencies
-    \item Within expected range for critical infrastructure
-    \item Suggests distributed hosting for varied government services
+    \item 1,163 government candidates appear in the aggregate passive baseline
+    \item Indicates substantial public-sector naming visibility across ministries and agencies
+    \item Supports future prioritization of validated government-focused follow-on measurement
 \end{itemize}
 
-\textbf{Commercial Sector (12.0\% of infrastructure):}
+\textbf{Commercial Sector (11.91\% of infrastructure):}
 \begin{itemize}
     \item Private enterprises registered across com.lk and related TLDs
-    \item Distributed deployment across heterogeneous service providers
+    \item The aggregate run records 1,267 commercial candidates
     \item Indicates meaningful externally visible digital presence in the private sector
 \end{itemize}
 
@@ -507,13 +515,13 @@ The January~2026 dataset should be interpreted as a cross-sectional baseline sna
 
 \textbf{Finding 1: Educational Sector Dominance and Infrastructure Growth}
 
-The passive enumeration discovered 4,235 sch.lk subdomains (40.1\% of the observed national naming footprint), indicating extensive digitalization across Sri Lankan educational institutions. Even without active validation, this concentration is relevant for governance because it identifies a large sector in which future authorized security assessment, coordination, and capacity-building could have high national impact.
+The passive enumeration discovered 4,235 sch.lk candidates (39.81\% of the observed national naming footprint), indicating extensive digitalization across Sri Lankan educational institutions. Even without active validation, this concentration is relevant for governance because it identifies a large sector in which future authorized security assessment, coordination, and capacity-building could have high national impact.
 
 \textbf{Finding 2: Certificate Transparency Dominance and Source Dependence}
 
-CT logs' 99.85\% coverage (10,545 of 10,561 domains) demonstrates the strong dependence of passive national-scale discovery on certificate transparency infrastructure. This result should be interpreted carefully: CT log presence indicates public evidence of certificate issuance, not current service availability, certificate validity, TLS configuration quality, or broader security posture. The dominance of CT logs therefore supports a measurement conclusion about source efficacy rather than a direct security conclusion.
+CT logs' 99.25\% coverage (10,558 of 10,638 candidates) demonstrates the strong dependence of passive national-scale discovery on certificate transparency infrastructure. This result should be interpreted carefully: CT log presence indicates public evidence of certificate issuance, not current service availability, certificate validity, TLS configuration quality, or broader security posture. The dominance of CT logs therefore supports a measurement conclusion about source efficacy rather than a direct security conclusion.
 
-Notably, public vulnerability databases contributed only 16 apex domain records (0.15\%), reflecting limited research community engagement with Sri Lankan infrastructure. This gap suggests opportunity for expanded regional threat intelligence collection.
+Non-CT sources contributed only marginal supplementary yield in the aggregate package: HackerTarget added 104 candidates (0.98\%), apex-domain aggregation added 16 (0.15\%), and Cert Spotter added 1 (0.01\%). This pattern suggests both the practical value of CT-led passive discovery and the limited additional coverage currently obtained from other passive public sources in this setting.
 
 \textbf{Finding 3: Sectoral Heterogeneity}
 
@@ -549,7 +557,7 @@ The distribution of discovered names is highly uneven across domain groups, indi
 
 \textbf{Data Source Heterogeneity and Coverage Implications:}
 
-The dominance of Certificate Transparency logs (99.85\%) reflects the passive enumeration constraint. Active methodologies would expand coverage through DNS brute-forcing, zone transfers, and HTTP crawling, but these approaches violate ethical research boundaries without explicit authorization from nic.lk. The passive methodology establishes sustainable, legal baseline metrics and explicitly identifies areas where active assessment would provide incremental value—particularly the 0.15\% non-HTTPS infrastructure estimated from public databases.
+The dominance of Certificate Transparency logs (99.25\%) reflects the passive enumeration constraint. Active methodologies would expand coverage through DNS brute-forcing, zone transfers, and HTTP crawling, but these approaches violate ethical research boundaries without explicit authorization from nic.lk. The passive methodology establishes sustainable, legal baseline metrics and explicitly identifies areas where active assessment would provide incremental value by adding protocol-level evidence absent from the passive-only aggregate package.
 
 \subsection{Threats to Validity}
 
@@ -569,7 +577,7 @@ The dominance of Certificate Transparency logs (99.85\%) reflects the passive en
 
 \subsection{Comparison with International Context}
 
-Sri Lanka's 10,561 subdomains across 16 second-level TLDs reveal strong sectoral concentration in education (40.1\%) together with distributed infrastructure across government, commercial, and civil-society sectors. This profile highlights priority areas for cybersecurity capacity-building, including educational institution security programs, government infrastructure monitoring, and small-to-medium enterprise (SME) security awareness.
+Sri Lanka's aggregate passive baseline of 10,638 discovered candidates across 16 second-level TLDs reveals strong sectoral concentration in education (39.81\%) together with distributed infrastructure across government, commercial, and civil-society sectors. This profile highlights priority areas for cybersecurity capacity-building, including educational institution security programs, government infrastructure monitoring, and small-to-medium enterprise (SME) security awareness.
 
 \section{Future Work}
 \label{sec:future}
@@ -610,15 +618,15 @@ All source code, analysis scripts, configuration files, and documentation are av
 \section{Conclusion}
 \label{sec:conclusion}
 
-This study presents a national-scale passive enumeration baseline for Sri Lanka, identifying 10,561 subdomains across 16 second-level domain categories managed under nic.lk. Using public Certificate Transparency logs and publicly aggregated vulnerability intelligence sources, we establish a reproducible baseline for externally visible naming infrastructure without requiring authorization or introducing active measurement traffic.
+This study presents a national-scale passive enumeration baseline for Sri Lanka, identifying 10,638 discovered candidates across 16 second-level domain categories managed under nic.lk. Using public Certificate Transparency logs and publicly aggregated vulnerability intelligence sources, we establish a reproducible baseline for externally visible naming infrastructure without requiring authorization or introducing active measurement traffic.
 
 Our findings provide three principal insights relevant to measurement research and governance planning:
 
 \textbf{Infrastructure Scale and Composition:} The observed naming footprint is large and unevenly distributed across Sri Lankan sectors, with clear concentration in education, commercial, academic, and government categories.
 
-\textbf{Sectoral Concentration:} Educational institutions dominate the observed naming infrastructure at 40.1\% (4,235 sch.lk subdomains), followed by commercial, academic, and government sectors. This concentration identifies priority sectors for future validated assessment and policy attention.
+\textbf{Sectoral Concentration:} Educational institutions dominate the observed naming infrastructure at 39.81\% (4,235 sch.lk candidates), followed by commercial, educational, government, organizational, and academic sectors. This concentration identifies priority sectors for future validated assessment and policy attention.
 
-\textbf{Data Source Dominance and Coverage:} Certificate Transparency logs account for 99.85\% of discovered names, showing that CT infrastructure is the dominant passive discovery mechanism in this setting. At the same time, passive discovery alone cannot confirm current operational state or security configuration.
+\textbf{Data Source Dominance and Coverage:} Certificate Transparency logs account for 99.25\% of discovered candidates, showing that CT infrastructure is the dominant passive discovery mechanism in this setting. At the same time, passive discovery alone cannot confirm current operational state or security configuration.
 
 \textbf{Methodological Utility:} A passive-only workflow can produce a legally conservative, repeatable national baseline that is suitable for longitudinal monitoring and for planning later authorized active studies.
 
