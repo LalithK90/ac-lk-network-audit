@@ -36,14 +36,17 @@ def load_env_file(env_path: Path = Path(".env")) -> Dict[str, str]:
     return env_vars
 
 
-REQUIRED_FILES = [
-    "observations_long.csv",
-    "subdomain_metrics.csv",
+CORE_FILES = [
     "discovered_candidates.csv",
-    "errors.csv",
-    "control_metrics.csv",
     "enumeration_method_counts.csv",
     "run_metadata.json",
+]
+
+OPTIONAL_FILES = [
+    "observations_long.csv",
+    "subdomain_metrics.csv",
+    "errors.csv",
+    "control_metrics.csv",
 ]
 
 # Paper tables file mappings
@@ -57,10 +60,45 @@ PAPER_FILES = {
     "meta": "run_metadata.json",
 }
 
+TABLE_EXPORT_NAMES = {
+    "t1": "t1_run_overview.csv",
+    "t2": "t2_dns_tls_aggregation.csv",
+    "t3": "t3_outcome_distribution.csv",
+    "t4": "t4_error_reasons.csv",
+    "t5": "t5_risk_distribution.csv",
+    "t6": "t6_top_failing_checks.csv",
+    "t7": "t7_enumeration_methods.csv",
+    "t8": "t8_protocol_by_category.csv",
+    "t9": "t9_subdomain_pass_rate_distribution.csv",
+    "t10": "t10_check_categories_summary.csv",
+    "t11": "t11_top_passing_checks.csv",
+    "t12": "t12_target_status_overview.csv",
+    "t13": "t13_attempt_rate_analysis.csv",
+}
+
+FIGURE_CAPTIONS = {
+    "fig_enum_methods_bar.png": "Enumeration method contribution across discovered candidates.",
+    "fig_discovery_method_share.png": "Relative share of subdomains contributed by each enumeration method.",
+    "fig_scan_status_overview.png": "Candidate scan-status distribution for the run.",
+    "fig_confidence_distribution.png": "Confidence-level distribution of discovered candidates.",
+    "fig_observation_outcomes.png": "Observation outcome distribution across all executed checks.",
+    "fig_risk_distribution.png": "Risk-level distribution of assessed subdomains.",
+    "fig_top_failing_checks.png": "Top failing security checks by occurrence count.",
+    "fig_category_pass_rate.png": "Average pass rate by security-check category.",
+    "fig_error_reasons.png": "Frequency of error reasons recorded during measurement.",
+}
+
 
 def safe_read_csv(path: Path) -> pd.DataFrame:
     # Keep empty strings as empty, avoid pandas guessing too hard
     return pd.read_csv(path, keep_default_na=True)
+
+
+def try_read_csv(path: Path) -> pd.DataFrame:
+    """Return an empty DataFrame when the input file is absent."""
+    if not path.exists():
+        return pd.DataFrame()
+    return safe_read_csv(path)
 
 
 def read_csv(path: Path) -> pd.DataFrame:
@@ -95,6 +133,16 @@ def md_df_table(df: pd.DataFrame) -> str:
         return str(df)
 
 
+def placeholder_df(note: str) -> pd.DataFrame:
+    """Create a one-row placeholder table for unavailable data."""
+    return pd.DataFrame([{"Note": note}])
+
+
+def has_columns(df: pd.DataFrame, columns: List[str]) -> bool:
+    """Return True only when all requested columns are present."""
+    return not df.empty and all(column in df.columns for column in columns)
+
+
 def pick_col(df: pd.DataFrame, candidates: list[str]) -> str | None:
     """Pick the first column that exists from a list of candidates."""
     for c in candidates:
@@ -124,7 +172,7 @@ def find_run_dirs(root: Path, domain: Optional[str] = None) -> List[Path]:
     for p in search_root.rglob("*"):
         if not p.is_dir():
             continue
-        if all((p / f).exists() for f in REQUIRED_FILES):
+        if all((p / f).exists() for f in CORE_FILES):
             run_dirs.append(p)
 
     # deterministic order
@@ -139,6 +187,8 @@ def load_metadata(path: Path) -> Dict:
 
 def compute_tls_enabled(observations: pd.DataFrame) -> int:
     # TLS-enabled targets are those with TLS_AVAILABLE == Pass
+    if observations.empty:
+        return 0
     needed_cols = {"target", "check_id", "status"}
     missing = needed_cols - set(observations.columns)
     if missing:
@@ -165,13 +215,17 @@ def summarize_errors(errors: pd.DataFrame) -> Tuple[int, pd.DataFrame]:
 
 
 def summarize_risk(sub_metrics: pd.DataFrame) -> pd.DataFrame:
-    # expected columns: risk_level, pass_rate, attempt_rate
-    for col in ["risk_level", "pass_rate", "attempt_rate"]:
-        if col not in sub_metrics.columns:
-            # degrade gracefully
-            sub_metrics[col] = pd.NA
+    if sub_metrics.empty:
+        return placeholder_df("Risk metrics unavailable for this run")
 
-    g = sub_metrics.groupby("risk_level", dropna=False)
+    # expected columns: risk_level, pass_rate, attempt_rate
+    tmp = sub_metrics.copy()
+    for col in ["risk_level", "pass_rate", "attempt_rate"]:
+        if col not in tmp.columns:
+            # degrade gracefully
+            tmp[col] = pd.NA
+
+    g = tmp.groupby("risk_level", dropna=False)
     out = pd.DataFrame(
         {
             "count": g.size(),
@@ -192,12 +246,15 @@ def summarize_risk(sub_metrics: pd.DataFrame) -> pd.DataFrame:
 
 
 def top_problem_checks(control: pd.DataFrame, n: int = 10) -> pd.DataFrame:
-    # Prefer checks with errors, then failed, then low pass_rate
-    for col in ["errors", "failed", "pass_rate", "check_id", "check_name", "category"]:
-        if col not in control.columns:
-            control[col] = pd.NA
+    if control.empty:
+        return placeholder_df("Control metrics unavailable for this run")
 
+    # Prefer checks with errors, then failed, then low pass_rate
     tmp = control.copy()
+    for col in ["errors", "failed", "pass_rate", "check_id", "check_name", "category"]:
+        if col not in tmp.columns:
+            tmp[col] = pd.NA
+
     # numeric coercion for sorting
     for c in ["errors", "failed", "pass_rate"]:
         tmp[c] = pd.to_numeric(tmp[c], errors="coerce").fillna(0)
@@ -264,12 +321,324 @@ def methodology_notes() -> str:
     )
 
 
+def generate_publication_tables(
+    run_dir: Path,
+    meta: Dict,
+    disc: pd.DataFrame,
+    obs: pd.DataFrame,
+    errs: pd.DataFrame,
+    ctrl: pd.DataFrame,
+    enum: pd.DataFrame,
+    subm: pd.DataFrame,
+    top_n: int = 10,
+) -> dict[str, pd.DataFrame]:
+    """Generate the full set of publication tables with graceful degradation."""
+    return {
+        "t1": table_1_run_overview(run_dir, meta, disc, obs, enum),
+        "t2": table_2_dns_tls_aggregation(disc, obs),
+        "t3": table_3_outcome_distribution(obs),
+        "t4": table_4_error_reasons(errs),
+        "t5": table_5_risk_distribution(subm),
+        "t6": table_6_top_failing_checks(ctrl, n=top_n),
+        "t7": table_7_enum_methods(enum),
+        "t8": table_8_protocol_by_category(ctrl),
+        "t9": table_9_subdomain_pass_rate_distribution(subm),
+        "t10": table_10_check_categories_summary(ctrl),
+        "t11": table_11_top_passing_checks(ctrl, n=top_n),
+        "t12": table_12_target_status_overview(disc),
+        "t13": table_13_attempt_rate_analysis(subm),
+    }
+
+
+def export_tables_csv(tables: dict[str, pd.DataFrame], run_dir: Path) -> Path:
+    """Write publication tables as CSV files under the run directory."""
+    tables_dir = run_dir / "tables"
+    tables_dir.mkdir(parents=True, exist_ok=True)
+
+    for key, df in tables.items():
+        export_name = TABLE_EXPORT_NAMES.get(key, f"{key}.csv")
+        df.to_csv(tables_dir / export_name, index=False)
+
+    return tables_dir
+
+
+def generate_publication_figures(
+    run_dir: Path,
+    disc: pd.DataFrame,
+    enum: pd.DataFrame,
+    obs: pd.DataFrame,
+    ctrl: pd.DataFrame,
+    subm: pd.DataFrame,
+    errs: pd.DataFrame,
+) -> List[str]:
+    """Generate publication-ready PNG figures under figs/."""
+    try:
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+    except ImportError:
+        print(
+            "Warning: matplotlib/seaborn unavailable, skipping PNG figure export.",
+            file=sys.stderr,
+        )
+        return []
+
+    figs_dir = run_dir / "figs"
+    figs_dir.mkdir(parents=True, exist_ok=True)
+
+    sns.set_theme(style="whitegrid", context="paper")
+    plt.rcParams.update({
+        "figure.dpi": 300,
+        "savefig.dpi": 300,
+        "font.family": "serif",
+        "font.size": 9,
+        "axes.titlesize": 10,
+        "axes.labelsize": 9,
+        "xtick.labelsize": 8,
+        "ytick.labelsize": 8,
+        "legend.fontsize": 8,
+    })
+
+    created: List[str] = []
+
+    def finalize(filename: str):
+        plt.tight_layout()
+        plt.savefig(figs_dir / filename, dpi=300, bbox_inches="tight")
+        plt.close()
+        created.append(filename)
+
+    if has_columns(enum, ["discovery_method", "subdomain_count"]):
+        enum_plot = enum.copy()
+        enum_plot["subdomain_count"] = pd.to_numeric(
+            enum_plot["subdomain_count"], errors="coerce").fillna(0)
+        enum_plot = enum_plot[enum_plot["subdomain_count"] > 0].sort_values(
+            "subdomain_count", ascending=False
+        )
+
+        if not enum_plot.empty:
+            plt.figure(figsize=(7.0, 4.2))
+            sns.barplot(data=enum_plot, x="subdomain_count", y="discovery_method", color="#2f6690")
+            plt.title("Enumeration Method Contribution")
+            plt.xlabel("Discovered subdomains")
+            plt.ylabel("Method")
+            finalize("fig_enum_methods_bar.png")
+
+            top_methods = enum_plot.head(6).copy()
+            remainder = int(enum_plot.iloc[6:]["subdomain_count"].sum()) if len(enum_plot) > 6 else 0
+            if remainder > 0:
+                top_methods = pd.concat(
+                    [
+                        top_methods,
+                        pd.DataFrame([{"discovery_method": "other", "subdomain_count": remainder}]),
+                    ],
+                    ignore_index=True,
+                )
+
+            plt.figure(figsize=(6.2, 4.8))
+            plt.pie(
+                top_methods["subdomain_count"],
+                labels=top_methods["discovery_method"],
+                autopct="%1.1f%%",
+                startangle=90,
+                wedgeprops={"width": 0.45, "edgecolor": "white"},
+            )
+            plt.title("Discovery Method Share")
+            finalize("fig_discovery_method_share.png")
+
+    if has_columns(disc, ["scan_status"]):
+        status_counts = disc["scan_status"].fillna("unknown").value_counts().reset_index()
+        status_counts.columns = ["scan_status", "count"]
+
+        plt.figure(figsize=(6.4, 4.0))
+        sns.barplot(data=status_counts, x="scan_status", y="count", color="#3a7d44")
+        plt.title("Candidate Scan Status Overview")
+        plt.xlabel("Scan status")
+        plt.ylabel("Candidate count")
+        plt.xticks(rotation=20, ha="right")
+        finalize("fig_scan_status_overview.png")
+
+    if has_columns(disc, ["confidence"]):
+        confidence_counts = disc["confidence"].fillna("unknown").value_counts().reset_index()
+        confidence_counts.columns = ["confidence", "count"]
+
+        plt.figure(figsize=(6.0, 4.0))
+        sns.barplot(data=confidence_counts, x="confidence", y="count", color="#8f5ca2")
+        plt.title("Discovery Confidence Distribution")
+        plt.xlabel("Confidence level")
+        plt.ylabel("Candidate count")
+        finalize("fig_confidence_distribution.png")
+
+    if has_columns(obs, ["status"]):
+        outcome_counts = obs["status"].fillna("NA").value_counts().reset_index()
+        outcome_counts.columns = ["status", "count"]
+        plt.figure(figsize=(6.2, 4.0))
+        sns.barplot(data=outcome_counts, x="status", y="count", color="#c97b63")
+        plt.title("Observation Outcome Distribution")
+        plt.xlabel("Outcome")
+        plt.ylabel("Observation count")
+        finalize("fig_observation_outcomes.png")
+
+    if has_columns(subm, ["risk_level"]):
+        risk_counts = subm["risk_level"].fillna("NA").value_counts().reset_index()
+        risk_counts.columns = ["risk_level", "count"]
+        plt.figure(figsize=(6.0, 4.0))
+        sns.barplot(data=risk_counts, x="risk_level", y="count", color="#d1495b")
+        plt.title("Risk-Level Distribution")
+        plt.xlabel("Risk level")
+        plt.ylabel("Subdomain count")
+        finalize("fig_risk_distribution.png")
+
+    if not ctrl.empty:
+        failing = table_6_top_failing_checks(ctrl, n=10)
+        if not failing.empty and "Failed" in failing.columns and "Check ID" in failing.columns:
+            plot_df = failing.copy()
+            plot_df["Failed"] = pd.to_numeric(plot_df["Failed"], errors="coerce").fillna(0)
+            plot_df = plot_df.sort_values("Failed", ascending=False)
+            plt.figure(figsize=(7.0, 4.8))
+            sns.barplot(data=plot_df, x="Failed", y="Check ID", color="#b56576")
+            plt.title("Top Failing Security Checks")
+            plt.xlabel("Failure count")
+            plt.ylabel("Check ID")
+            finalize("fig_top_failing_checks.png")
+
+        category_summary = table_10_check_categories_summary(ctrl)
+        if not category_summary.empty and "Avg pass rate (%)" in category_summary.columns:
+            plot_df = category_summary.copy()
+            plot_df["Avg pass rate (%)"] = pd.to_numeric(
+                plot_df["Avg pass rate (%)"], errors="coerce"
+            ).fillna(0)
+            plt.figure(figsize=(7.0, 4.4))
+            sns.barplot(data=plot_df, x="Avg pass rate (%)", y="Category", color="#457b9d")
+            plt.title("Average Pass Rate by Check Category")
+            plt.xlabel("Average pass rate (%)")
+            plt.ylabel("Category")
+            finalize("fig_category_pass_rate.png")
+
+    if has_columns(errs, ["reason_code"]):
+        error_counts = errs["reason_code"].fillna("NA").value_counts().head(10).reset_index()
+        error_counts.columns = ["reason_code", "count"]
+        plt.figure(figsize=(6.8, 4.0))
+        sns.barplot(data=error_counts, x="count", y="reason_code", color="#6d597a")
+        plt.title("Error Reason Distribution")
+        plt.xlabel("Error count")
+        plt.ylabel("Reason code")
+        finalize("fig_error_reasons.png")
+
+    return created
+
+
+def write_research_summary(
+    run_dir: Path,
+    meta: Dict,
+    disc: pd.DataFrame,
+    enum: pd.DataFrame,
+    created_figures: List[str],
+    tables: dict[str, pd.DataFrame],
+) -> Path:
+    """Write a publication-focused summary for manuscript preparation."""
+    dominant_method = "N/A"
+    dominant_count = 0
+    if has_columns(enum, ["discovery_method", "subdomain_count"]):
+        enum_sorted = enum.copy()
+        enum_sorted["subdomain_count"] = pd.to_numeric(
+            enum_sorted["subdomain_count"], errors="coerce"
+        ).fillna(0)
+        enum_sorted = enum_sorted.sort_values("subdomain_count", ascending=False)
+        if not enum_sorted.empty:
+            dominant_method = str(enum_sorted.iloc[0]["discovery_method"])
+            dominant_value = enum_sorted.iloc[0]["subdomain_count"]
+            dominant_count = int(dominant_value) if pd.notna(dominant_value) else 0
+
+    available_scan_data = any(
+        key in tables and not tables[key].empty and "Note" not in tables[key].columns
+        for key in ["t2", "t3", "t5", "t6", "t8", "t9", "t10", "t11", "t13"]
+    )
+    root_domain = meta.get("domain") or meta.get("root_domain") or run_dir.parents[1].name
+
+    lines = [
+        f"# Research Summary for {root_domain}",
+        "",
+        "## Recommended JISA Content",
+        "",
+        "### Dataset and Scope",
+        f"- Root domain group: {root_domain}",
+        f"- Run ID: {meta.get('run_id', run_dir.name)}",
+        f"- Collection date: {meta.get('started_at', 'NA')}",
+        f"- Total discovered candidates: {int(len(disc))}",
+        f"- Dominant enumeration method: {dominant_method} ({dominant_count} candidates)",
+        "",
+        "### Results Section Content",
+        "- Use table T1 for dataset overview and scan context.",
+        "- Use table T7 and the enumeration figures to explain source contribution and coverage.",
+        "- Use table T12 to describe candidate state and scanning coverage.",
+    ]
+
+    if available_scan_data:
+        lines.extend([
+            "- Use tables T2-T6 and T8-T13 for protocol, risk, and control-level findings.",
+            "- Use active-scan figures to discuss pass/fail outcomes, risk distribution, and the most common failing checks.",
+        ])
+    else:
+        lines.extend([
+            "- This run is passive-only. Frame the paper around discovery coverage, method effectiveness, and observational limitations rather than confirmed service vulnerabilities.",
+            "- Report missing protocol-level evidence as unavailable data, not as negative security findings.",
+        ])
+
+    lines.extend([
+        "",
+        "### Tables Exported",
+    ])
+    for key, export_name in TABLE_EXPORT_NAMES.items():
+        status = "available" if key in tables else "not generated"
+        lines.append(f"- tables/{export_name}: {status}")
+
+    lines.extend([
+        "",
+        "### Figures Exported",
+    ])
+    if created_figures:
+        for figure_name in created_figures:
+            lines.append(f"- figs/{figure_name}: {FIGURE_CAPTIONS.get(figure_name, 'Publication figure')} ")
+    else:
+        lines.append("- No figures were exported for this run.")
+
+    lines.extend([
+        "",
+        "### Interpretation Guidance",
+        "- Separate discovery evidence from security evidence in the manuscript.",
+        "- Treat DNS discovery as candidate enumeration, not service confirmation.",
+        "- Treat absent active-scan outputs as scope limitations when operating in passive-only mode.",
+    ])
+
+    summary_path = run_dir / "research_summary.md"
+    summary_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+    return summary_path
+
+
+def export_publication_artifacts(
+    run_dir: Path,
+    meta: Dict,
+    disc: pd.DataFrame,
+    obs: pd.DataFrame,
+    errs: pd.DataFrame,
+    ctrl: pd.DataFrame,
+    enum: pd.DataFrame,
+    subm: pd.DataFrame,
+    top_n: int = 10,
+) -> Tuple[Path, List[str], Path]:
+    """Export publication-ready tables, figures, and summary files."""
+    tables = generate_publication_tables(run_dir, meta, disc, obs, errs, ctrl, enum, subm, top_n=top_n)
+    tables_dir = export_tables_csv(tables, run_dir)
+    created_figures = generate_publication_figures(run_dir, disc, enum, obs, ctrl, subm, errs)
+    summary_path = write_research_summary(run_dir, meta, disc, enum, created_figures, tables)
+    return tables_dir, created_figures, summary_path
+
+
 def build_report(run_dir: Path, out_dir: Path, use_cache: bool) -> Path:
-    obs = safe_read_csv(run_dir / "observations_long.csv")
-    subm = safe_read_csv(run_dir / "subdomain_metrics.csv")
+    obs = try_read_csv(run_dir / "observations_long.csv")
+    subm = try_read_csv(run_dir / "subdomain_metrics.csv")
     disc = safe_read_csv(run_dir / "discovered_candidates.csv")
-    errs = safe_read_csv(run_dir / "errors.csv")
-    ctrl = safe_read_csv(run_dir / "control_metrics.csv")
+    errs = try_read_csv(run_dir / "errors.csv")
+    ctrl = try_read_csv(run_dir / "control_metrics.csv")
     enum = safe_read_csv(run_dir / "enumeration_method_counts.csv")
     meta = load_metadata(run_dir / "run_metadata.json")
 
@@ -390,21 +759,7 @@ def build_report(run_dir: Path, out_dir: Path, use_cache: bool) -> Path:
     report_lines.append("# Publication Tables\n\n")
 
     try:
-        # Generate all 13 tables
-        tables = {}
-        tables["t1"] = table_1_run_overview(run_dir, meta, disc, obs, enum)
-        tables["t2"] = table_2_dns_tls_aggregation(disc, obs)
-        tables["t3"] = table_3_outcome_distribution(obs)
-        tables["t4"] = table_4_error_reasons(errs)
-        tables["t5"] = table_5_risk_distribution(subm)
-        tables["t6"] = table_6_top_failing_checks(ctrl, n=10)
-        tables["t7"] = table_7_enum_methods(enum)
-        tables["t8"] = table_8_protocol_by_category(ctrl)
-        tables["t9"] = table_9_subdomain_pass_rate_distribution(subm)
-        tables["t10"] = table_10_check_categories_summary(ctrl)
-        tables["t11"] = table_11_top_passing_checks(ctrl, n=10)
-        tables["t12"] = table_12_target_status_overview(disc)
-        tables["t13"] = table_13_attempt_rate_analysis(subm)
+        tables = generate_publication_tables(run_dir, meta, disc, obs, errs, ctrl, enum, subm, top_n=10)
 
         captions = {
             "t1": "Table 1. Run & dataset overview.",
@@ -439,6 +794,7 @@ def build_report(run_dir: Path, out_dir: Path, use_cache: bool) -> Path:
         md_path = out_dir / f"{run_dir.parent.name}__{run_dir.name}.md"
 
     md_path.write_text("\n".join(report_lines).strip() + "\n", encoding="utf-8")
+    return md_path
 
 
 def build_pdf_report(run_dir: Path, meta: Dict, disc: pd.DataFrame, subm: pd.DataFrame, enum: pd.DataFrame, obs: pd.DataFrame = None, ctrl: pd.DataFrame = None, errs: pd.DataFrame = None) -> Optional[Path]:
@@ -663,12 +1019,14 @@ def table_1_run_overview(run_dir: Path, meta: dict, disc: pd.DataFrame, obs: pd.
 
 def table_2_dns_tls_aggregation(disc: pd.DataFrame, obs: pd.DataFrame) -> pd.DataFrame:
     """Table 2: DNS discovery vs TLS evidence aggregation."""
+    if obs.empty:
+        return placeholder_df("TLS aggregation unavailable for passive-only or discovery-only runs")
+
     # REQUIRED: columns target, check_id, status in observations_long
     required = {"target", "check_id", "status"}
     missing = required - set(obs.columns)
     if missing:
-        raise ValueError(
-            f"observations_long.csv missing columns: {sorted(missing)}")
+        return placeholder_df(f"TLS aggregation unavailable; missing columns: {sorted(missing)}")
 
     dns_discovered = int(len(disc))
     tls_enabled = int(
@@ -693,11 +1051,13 @@ def table_2_dns_tls_aggregation(disc: pd.DataFrame, obs: pd.DataFrame) -> pd.Dat
 
 def table_3_outcome_distribution(obs: pd.DataFrame) -> pd.DataFrame:
     """Table 3: Observation outcome distribution."""
+    if obs.empty:
+        return placeholder_df("Observation outcomes unavailable for passive-only or discovery-only runs")
+
     # outcome/status column might differ; prefer "status"
     status_col = pick_col(obs, ["status", "outcome", "result"])
     if not status_col:
-        raise ValueError(
-            "observations_long.csv: can't find status/outcome/result column")
+        return placeholder_df("Observation outcomes unavailable; status column missing")
 
     counts = obs[status_col].fillna(
         "NA").value_counts(dropna=False).reset_index()
@@ -740,13 +1100,15 @@ def table_4_error_reasons(err: pd.DataFrame) -> pd.DataFrame:
 
 def table_5_risk_distribution(sub: pd.DataFrame) -> pd.DataFrame:
     """Table 5: Risk-level distribution (descriptive indicators)."""
+    if sub.empty:
+        return placeholder_df("Risk distribution unavailable for passive-only or discovery-only runs")
+
     risk_col = pick_col(sub, ["risk_level", "risk", "tier"])
     pass_rate_col = pick_col(sub, ["pass_rate", "passRate"])
     attempt_rate_col = pick_col(sub, ["attempt_rate", "attemptRate"])
 
     if not risk_col:
-        raise ValueError(
-            "subdomain_metrics.csv: can't find risk_level/risk/tier column")
+        return placeholder_df("Risk distribution unavailable; risk-level column missing")
 
     tmp = sub.copy()
     tmp[risk_col] = tmp[risk_col].fillna("NA")
@@ -778,6 +1140,9 @@ def table_5_risk_distribution(sub: pd.DataFrame) -> pd.DataFrame:
 
 def table_6_top_failing_checks(ctrl: pd.DataFrame, n: int = 10) -> pd.DataFrame:
     """Table 6: Top failing checks (transparency)."""
+    if ctrl.empty:
+        return placeholder_df("Failing-check analysis unavailable for passive-only or discovery-only runs")
+
     # flexible column mapping
     check_id = pick_col(ctrl, ["check_id", "id"])
     check_name = pick_col(ctrl, ["check_name", "name"])
@@ -787,7 +1152,7 @@ def table_6_top_failing_checks(ctrl: pd.DataFrame, n: int = 10) -> pd.DataFrame:
     pass_rate = pick_col(ctrl, ["pass_rate", "passRate"])
 
     if not check_id:
-        raise ValueError("control_metrics.csv: can't find check_id column")
+        return placeholder_df("Failing-check analysis unavailable; check_id column missing")
 
     tmp = ctrl.copy()
 
@@ -831,12 +1196,14 @@ def table_6_top_failing_checks(ctrl: pd.DataFrame, n: int = 10) -> pd.DataFrame:
 
 def table_7_enum_methods(enum: pd.DataFrame) -> pd.DataFrame:
     """Table 7: Enumeration method contribution."""
+    if enum.empty:
+        return placeholder_df("Enumeration method contribution unavailable")
+
     method_col = pick_col(enum, ["discovery_method", "method", "source"])
     count_col = pick_col(enum, ["subdomain_count", "count", "n"])
 
     if not method_col or not count_col:
-        raise ValueError(
-            "enumeration_method_counts.csv missing method/count columns")
+        return placeholder_df("Enumeration method contribution unavailable; method/count columns missing")
 
     tmp = enum[[method_col, count_col]].copy()
     tmp[count_col] = pd.to_numeric(
@@ -850,9 +1217,12 @@ def table_7_enum_methods(enum: pd.DataFrame) -> pd.DataFrame:
 
 def table_8_protocol_by_category(ctrl: pd.DataFrame) -> pd.DataFrame:
     """Table 8: Protocol breakdown by category."""
+    if ctrl.empty:
+        return placeholder_df("Protocol-by-category summary unavailable for passive-only or discovery-only runs")
+
     category_col = pick_col(ctrl, ["category", "group", "type"])
     if not category_col:
-        raise ValueError("control_metrics.csv: can't find category column")
+        return placeholder_df("Protocol-by-category summary unavailable; category column missing")
 
     tmp = ctrl.copy()
     for c in ["tested_checks", "total_targets", "passed", "failed", "errors", "pass_rate"]:
@@ -886,9 +1256,12 @@ def table_8_protocol_by_category(ctrl: pd.DataFrame) -> pd.DataFrame:
 
 def table_9_subdomain_pass_rate_distribution(sub: pd.DataFrame) -> pd.DataFrame:
     """Table 9: Subdomain pass rate distribution (histogram)."""
+    if sub.empty:
+        return placeholder_df("Pass-rate distribution unavailable for passive-only or discovery-only runs")
+
     pass_rate_col = pick_col(sub, ["pass_rate", "passRate"])
     if not pass_rate_col:
-        raise ValueError("subdomain_metrics.csv: can't find pass_rate column")
+        return placeholder_df("Pass-rate distribution unavailable; pass_rate column missing")
 
     tmp = sub.copy()
     tmp[pass_rate_col] = pd.to_numeric(tmp[pass_rate_col], errors="coerce").fillna(0)
@@ -907,9 +1280,12 @@ def table_9_subdomain_pass_rate_distribution(sub: pd.DataFrame) -> pd.DataFrame:
 
 def table_10_check_categories_summary(ctrl: pd.DataFrame) -> pd.DataFrame:
     """Table 10: Check categories summary."""
+    if ctrl.empty:
+        return placeholder_df("Check-category summary unavailable for passive-only or discovery-only runs")
+
     category_col = pick_col(ctrl, ["category", "group", "type"])
     if not category_col:
-        raise ValueError("control_metrics.csv: can't find category column")
+        return placeholder_df("Check-category summary unavailable; category column missing")
 
     tmp = ctrl.copy()
     tmp["count"] = 1
@@ -944,6 +1320,9 @@ def table_10_check_categories_summary(ctrl: pd.DataFrame) -> pd.DataFrame:
 
 def table_11_top_passing_checks(ctrl: pd.DataFrame, n: int = 10) -> pd.DataFrame:
     """Table 11: Top passing checks (best performers)."""
+    if ctrl.empty:
+        return placeholder_df("Top-passing checks unavailable for passive-only or discovery-only runs")
+
     check_id = pick_col(ctrl, ["check_id", "id"])
     check_name = pick_col(ctrl, ["check_name", "name"])
     category = pick_col(ctrl, ["category", "group"])
@@ -951,7 +1330,7 @@ def table_11_top_passing_checks(ctrl: pd.DataFrame, n: int = 10) -> pd.DataFrame
     tested = pick_col(ctrl, ["tested_checks", "tested", "total_targets"])
 
     if not check_id:
-        raise ValueError("control_metrics.csv: can't find check_id column")
+        return placeholder_df("Top-passing checks unavailable; check_id column missing")
 
     tmp = ctrl.copy()
     if pass_rate:
@@ -985,9 +1364,12 @@ def table_11_top_passing_checks(ctrl: pd.DataFrame, n: int = 10) -> pd.DataFrame
 
 def table_12_target_status_overview(disc: pd.DataFrame) -> pd.DataFrame:
     """Table 12: Target scan status overview."""
+    if disc.empty:
+        return placeholder_df("Target status overview unavailable")
+
     status_col = pick_col(disc, ["scan_status", "status", "state"])
     if not status_col:
-        raise ValueError("discovered_candidates.csv: can't find scan_status column")
+        return placeholder_df("Target status overview unavailable; scan-status column missing")
 
     tmp = disc.copy()
     tmp[status_col] = tmp[status_col].fillna("Unknown")
@@ -1001,9 +1383,12 @@ def table_12_target_status_overview(disc: pd.DataFrame) -> pd.DataFrame:
 
 def table_13_attempt_rate_analysis(sub: pd.DataFrame) -> pd.DataFrame:
     """Table 13: Attempt rate distribution analysis."""
+    if sub.empty:
+        return placeholder_df("Attempt-rate analysis unavailable for passive-only or discovery-only runs")
+
     attempt_rate_col = pick_col(sub, ["attempt_rate", "attemptRate"])
     if not attempt_rate_col:
-        raise ValueError("subdomain_metrics.csv: can't find attempt_rate column")
+        return placeholder_df("Attempt-rate analysis unavailable; attempt_rate column missing")
 
     tmp = sub.copy()
     tmp[attempt_rate_col] = pd.to_numeric(tmp[attempt_rate_col], errors="coerce").fillna(0)
@@ -1034,9 +1419,15 @@ def build_markdown(run_dir: Path, tables: dict[str, pd.DataFrame], out_path: Pat
         "t5": "Table 5. Risk-level distribution (descriptive indicators, not confirmed vulnerabilities).",
         "t6": "Table 6. Top failing checks (transparency).",
         "t7": "Table 7. Enumeration method contribution.",
+        "t8": "Table 8. Protocol breakdown by category.",
+        "t9": "Table 9. Subdomain pass rate distribution.",
+        "t10": "Table 10. Check categories summary.",
+        "t11": "Table 11. Top passing checks (best performers).",
+        "t12": "Table 12. Target scan status overview.",
+        "t13": "Table 13. Attempt rate distribution analysis.",
     }
 
-    for key in ["t1", "t2", "t3", "t4", "t5", "t6", "t7"]:
+    for key in ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9", "t10", "t11", "t12", "t13"]:
         lines.append(f"## {captions[key]}\n")
         lines.append(md_df_table(tables[key]))
         lines.append("\n")
@@ -1075,6 +1466,8 @@ Requirements:
                     help="Output markdown file path (default: <run_dir>/paper_tables.md).")
     ap.add_argument("--top-n", type=int, default=10,
                     help="Top N checks for Table 6 (default: 10).")
+    ap.add_argument("--publication", action="store_true",
+                    help="Export publication artifacts (tables CSV, PNG figures, research summary).")
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir).expanduser().resolve()
@@ -1084,7 +1477,7 @@ Requirements:
 
     # validate required files
     missing_files = []
-    for k, fn in PAPER_FILES.items():
+    for fn in CORE_FILES:
         p = run_dir / fn
         if not p.exists():
             missing_files.append(str(p))
@@ -1097,11 +1490,11 @@ Requirements:
 
     # Load data
     try:
-        obs = read_csv(run_dir / PAPER_FILES["obs"])
-        sub = read_csv(run_dir / PAPER_FILES["sub"])
+        obs = try_read_csv(run_dir / PAPER_FILES["obs"])
+        sub = try_read_csv(run_dir / PAPER_FILES["sub"])
         disc = read_csv(run_dir / PAPER_FILES["disc"])
-        err = read_csv(run_dir / PAPER_FILES["err"])
-        ctrl = read_csv(run_dir / PAPER_FILES["ctrl"])
+        err = try_read_csv(run_dir / PAPER_FILES["err"])
+        ctrl = try_read_csv(run_dir / PAPER_FILES["ctrl"])
         enum = read_csv(run_dir / PAPER_FILES["enum"])
         meta = json.loads(
             (run_dir / PAPER_FILES["meta"]).read_text(encoding="utf-8"))
@@ -1111,14 +1504,7 @@ Requirements:
 
     # Generate tables
     try:
-        tables = {}
-        tables["t1"] = table_1_run_overview(run_dir, meta, disc, obs, enum)
-        tables["t2"] = table_2_dns_tls_aggregation(disc, obs)
-        tables["t3"] = table_3_outcome_distribution(obs)
-        tables["t4"] = table_4_error_reasons(err)
-        tables["t5"] = table_5_risk_distribution(sub)
-        tables["t6"] = table_6_top_failing_checks(ctrl, n=args.top_n)
-        tables["t7"] = table_7_enum_methods(enum)
+        tables = generate_publication_tables(run_dir, meta, disc, obs, err, ctrl, enum, sub, top_n=args.top_n)
     except Exception as e:
         print(f"Error generating tables: {e}", file=sys.stderr)
         return 1
@@ -1128,6 +1514,8 @@ Requirements:
     ) if args.out_md else (run_dir / "paper_tables.md")
     try:
         build_markdown(run_dir, tables, out_md)
+        if args.publication:
+            export_publication_artifacts(run_dir, meta, disc, obs, err, ctrl, enum, sub, top_n=args.top_n)
         print(f"✓ Wrote paper tables: {out_md}")
         print(f"\nGenerated 7 tables from run: {run_dir.name}")
         return 0
@@ -1165,6 +1553,8 @@ MODES:
                     help="Domain to scan for (batch mode). If not specified, defaults to ac.lk (ignores .env).");
     ap.add_argument("--use-cache", action="store_true",
                     help="Compute optional evidence metrics from cache (batch mode).")
+    ap.add_argument("--publication", action="store_true",
+                    help="Export publication artifacts (tables CSV, PNG figures, research summary).")
 
     # Paper tables arguments
     ap.add_argument("--run-dir", type=str, default=None,
@@ -1188,6 +1578,8 @@ MODES:
             sys.argv.extend(["--out-md", args.out_md])
         if args.top_n != 10:
             sys.argv.extend(["--top-n", str(args.top_n)])
+        if args.publication:
+            sys.argv.append("--publication")
 
         return paper_tables_main()
     else:
@@ -1222,16 +1614,20 @@ MODES:
                 # Generate report in the run directory itself
                 md_path = build_report(run_dir, run_dir, use_cache=args.use_cache)
 
+                disc = safe_read_csv(run_dir / "discovered_candidates.csv")
+                subm = try_read_csv(run_dir / "subdomain_metrics.csv")
+                enum = safe_read_csv(
+                    run_dir / "enumeration_method_counts.csv")
+                obs = try_read_csv(run_dir / "observations_long.csv")
+                ctrl = try_read_csv(run_dir / "control_metrics.csv")
+                errs = try_read_csv(run_dir / "errors.csv")
+                meta = load_metadata(run_dir / "run_metadata.json")
+
+                if args.publication:
+                    export_publication_artifacts(run_dir, meta, disc, obs, errs, ctrl, enum, subm)
+
                 # Generate PDF report alongside Markdown
                 try:
-                    disc = safe_read_csv(run_dir / "discovered_candidates.csv")
-                    subm = safe_read_csv(run_dir / "subdomain_metrics.csv")
-                    enum = safe_read_csv(
-                        run_dir / "enumeration_method_counts.csv")
-                    obs = safe_read_csv(run_dir / "observations_long.csv")
-                    ctrl = safe_read_csv(run_dir / "control_metrics.csv")
-                    errs = safe_read_csv(run_dir / "errors.csv")
-                    meta = load_metadata(run_dir / "run_metadata.json")
                     pdf_path = build_pdf_report(
                         run_dir, meta, disc, subm, enum, obs, ctrl, errs)
                 except Exception as e:
