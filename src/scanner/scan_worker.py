@@ -62,7 +62,7 @@ claiming different targets from the queue.
 import logging
 import asyncio
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 
 from state.state_manager import StateManager
@@ -82,14 +82,14 @@ logger = logging.getLogger(__name__)
 
 class ScanWorker:
     """Scanner worker that processes scan queue.
-    
+
     Claims jobs atomically, scans them, marks complete.
     Respects rescan policy and crash recovery.
     """
-    
+
     def __init__(self, domain: str, state_mgr: StateManager, config: Config, run_id: str):
         """Initialize scanner worker.
-        
+
         Args:
             domain: Base domain
             state_mgr: State manager for queue operations
@@ -100,58 +100,64 @@ class ScanWorker:
         self.state_mgr = state_mgr
         self.config = config
         self.run_id = run_id
-        
+
         # Create cache
         cache_dir = config.out_dir / domain / "cache"
         self.cache = Cache(cache_dir)
-        
+
         # Create probe instances
         self.dns_probe = DNSProbe(self.cache, timeout=config.dns_timeout)
         self.tls_probe = TLSProbe(self.cache, timeout=config.tls_timeout)
         self.email_probe = EmailProbe(self.cache, timeout=config.dns_timeout)
         # Note: HTTP probe needs to be created in async context (has session)
-        
+
         self.evaluator = CheckEvaluator()
         self.scoring_model = ScoringModel()
-        
+
         # Smart profiling (optional)
         self.profiler = ScanProfiler() if config.enable_smart_profiling else None
         self.max_attempts = config.max_scan_attempts
         self.scan_timeout = config.scan_timeout_seconds
-        
+        self.scan_concurrency = max(50, int(getattr(config, 'workers', 50)))
+        self.http_probe: Optional[HTTPProbe] = None
+        self._stats_lock = asyncio.Lock()
+
         self.scanned_count = 0
         self.error_count = 0
         self._running = False
-        
+
         # Results accumulator (for export)
         self.all_results = []
-    
+
     async def run(self, continuous: bool = False, stop_when_empty_count: int = 3):
         """Run scanner worker.
-        
+
         Args:
             continuous: If True, keep polling for new jobs until stopped.
                        If False, process all eligible jobs once and exit.
             stop_when_empty_count: In continuous mode, stop after this many consecutive
                                   empty polls (prevents infinite waiting)
-        
+
         WHY continuous mode: Allows scanner to process discoveries as enumerator finds them.
         WHY batch mode: For one-shot scans when enumeration is complete.
         WHY stop_when_empty_count: Allows scanner to exit gracefully after enumeration completes.
         """
         self._running = True
         logger.info(f"🔬 Scanner worker starting (continuous={continuous})")
-        
+
+        self.http_probe = HTTPProbe(self.cache, timeout=self.config.http_timeout)
+        await self.http_probe.__aenter__()
+
         consecutive_empty = 0  # Track consecutive empty polls
-        
+
         try:
             while self._running:
                 # Claim batch of eligible jobs
                 batch = self.state_mgr.claim_scan_jobs(batch_size=self.config.max_scan_batch)
-                
+
                 if not batch:
                     consecutive_empty += 1
-                    
+
                     if continuous:
                         # Check if enumeration is complete
                         enumeration_done = self.state_mgr.get_meta(
@@ -174,146 +180,180 @@ class ScanWorker:
                         # Batch mode: exit when no more jobs
                         logger.info("No more eligible jobs, scanner worker exiting")
                         break
-                
+
                 # Reset consecutive empty counter when we get jobs
                 consecutive_empty = 0
-                
+
                 logger.info(f"Claimed {len(batch)} targets for scanning")
-                
+                logger.info(
+                    f"Scanning batch with up to {min(self.scan_concurrency, len(batch))} concurrent targets")
+
                 # Scan batch
                 await self._scan_batch(batch)
-                
+
                 # Update run statistics
                 self.state_mgr.update_run(
                     self.run_id,
                     scanned=self.scanned_count,
                     errors=self.error_count
                 )
-        
+
         except Exception as e:
             logger.error(f"Scanner worker error: {e}", exc_info=True)
         finally:
+            if self.http_probe:
+                await self.http_probe.__aexit__(None, None, None)
+                self.http_probe = None
             self._running = False
-    
+
     async def _scan_batch(self, fqdns: List[str]):
         """Scan a batch of targets.
-        
+
         WHY batch processing: Efficient use of async I/O and connection pooling.
         """
-        for fqdn in fqdns:
+        if not fqdns:
+            return
+
+        parallelism = min(self.scan_concurrency, len(fqdns))
+        semaphore = asyncio.Semaphore(parallelism)
+
+        async def scan_with_limit(fqdn: str):
+            async with semaphore:
+                await self._scan_target(fqdn)
+
+        tasks = [asyncio.create_task(scan_with_limit(fqdn)) for fqdn in fqdns]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for fqdn, result in zip(fqdns, results):
+            if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
+                logger.error(
+                    f"Unexpected task error for {fqdn}: {result}",
+                    exc_info=(type(result), result, result.__traceback__)
+                )
+
+    async def _scan_target(self, fqdn: str):
+        """Scan one target with timeout and retry handling."""
+        try:
+            # Check max attempts before scanning
+            if hasattr(self.state_mgr, 'get_scan_attempts'):
+                attempts = self.state_mgr.get_scan_attempts(fqdn)
+                if attempts >= self.max_attempts:
+                    logger.warning(f"⏭️  {fqdn}: Skipping (max {self.max_attempts} attempts reached)")
+                    return
+
+            # Apply scan timeout
             try:
-                # Check max attempts before scanning
-                if hasattr(self.state_mgr, 'get_scan_attempts'):
-                    attempts = self.state_mgr.get_scan_attempts(fqdn)
-                    if attempts >= self.max_attempts:
-                        logger.warning(f"⏭️  {fqdn}: Skipping (max {self.max_attempts} attempts reached)")
-                        continue
-                
-                # Apply scan timeout
-                try:
-                    await asyncio.wait_for(
-                        self._scan_single(fqdn),
-                        timeout=self.scan_timeout
-                    )
+                await asyncio.wait_for(
+                    self._scan_single(fqdn),
+                    timeout=self.scan_timeout
+                )
+                async with self._stats_lock:
                     self.scanned_count += 1
-                except asyncio.TimeoutError:
-                    logger.error(f"⏱️  {fqdn}: Scan timeout after {self.scan_timeout}s")
+            except asyncio.TimeoutError:
+                logger.error(f"⏱️  {fqdn}: Scan timeout after {self.scan_timeout}s")
+                async with self._stats_lock:
                     self.error_count += 1
-                    
-                    # Mark as error with permanent failure after max attempts
-                    if hasattr(self.state_mgr, 'get_scan_attempts'):
-                        attempts = self.state_mgr.get_scan_attempts(fqdn)
-                        if attempts + 1 >= self.max_attempts:
-                            if hasattr(self.state_mgr, 'mark_scan_failed_permanent'):
-                                self.state_mgr.mark_scan_failed_permanent(
-                                    fqdn,
-                                    f"Timeout after {self.scan_timeout}s (attempt {attempts + 1}/{self.max_attempts})"
-                                )
-                            else:
-                                self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=f"Timeout after {self.scan_timeout}s")
-                        else:
-                            self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=f"Timeout after {self.scan_timeout}s")
-                    else:
-                        self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=f"Timeout after {self.scan_timeout}s")
-                    continue
-                    
-            except Exception as e:
-                logger.error(f"Failed to scan {fqdn}: {e}")
-                self.error_count += 1
-                
+
                 # Mark as error with permanent failure after max attempts
                 if hasattr(self.state_mgr, 'get_scan_attempts'):
                     attempts = self.state_mgr.get_scan_attempts(fqdn)
                     if attempts + 1 >= self.max_attempts:
                         if hasattr(self.state_mgr, 'mark_scan_failed_permanent'):
-                            self.state_mgr.mark_scan_failed_permanent(fqdn, str(e))
+                            self.state_mgr.mark_scan_failed_permanent(
+                                fqdn,
+                                f"Timeout after {self.scan_timeout}s (attempt {attempts + 1}/{self.max_attempts})"
+                            )
                         else:
-                            self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=str(e))
+                            self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=f"Timeout after {self.scan_timeout}s")
+                    else:
+                        self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=f"Timeout after {self.scan_timeout}s")
+                else:
+                    self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=f"Timeout after {self.scan_timeout}s")
+
+        except Exception as e:
+            logger.error(f"Failed to scan {fqdn}: {e}")
+            async with self._stats_lock:
+                self.error_count += 1
+
+            # Mark as error with permanent failure after max attempts
+            if hasattr(self.state_mgr, 'get_scan_attempts'):
+                attempts = self.state_mgr.get_scan_attempts(fqdn)
+                if attempts + 1 >= self.max_attempts:
+                    if hasattr(self.state_mgr, 'mark_scan_failed_permanent'):
+                        self.state_mgr.mark_scan_failed_permanent(fqdn, str(e))
                     else:
                         self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=str(e))
                 else:
                     self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=str(e))
-    
+            else:
+                self.state_mgr.mark_scan_complete(fqdn, success=False, error_msg=str(e))
+
     async def _scan_single(self, fqdn: str):
         """Scan a single target.
-        
+
         WHY: Execute full scan pipeline: probe → evaluate → score → persist.
         """
         logger.debug(f"Scanning {fqdn}...")
-        
+
         # Smart profiling (if enabled)
         profile_info = None
         if self.profiler:
             profile_info = self.profiler.detect_profile(fqdn)
             logger.info(f"📋 {fqdn}: Profile={profile_info['profile']} ({profile_info['confidence']:.0%} confidence)")
-        
+
+        if not self.http_probe:
+            logger.error(f"HTTP probe not initialized for {fqdn}")
+            self.state_mgr.mark_scan_complete(
+                fqdn,
+                success=False,
+                error_msg="HTTP probe not initialized"
+            )
+            return
+
         # Phase 1: Probing
-        # Create HTTP probe (needs async context)
-        async with HTTPProbe(self.cache, timeout=self.config.http_timeout) as http_probe:
-            # Run DNS probe first
-            dns_result = await self.dns_probe.resolve(fqdn)
-            
-            if not dns_result.success:
-                # DNS failed - target doesn't exist
-                logger.warning(f"DNS failed for {fqdn}: {dns_result.error}")
-                self.state_mgr.mark_scan_complete(
-                    fqdn,
-                    success=False,
-                    error_msg=f"DNS resolution failed: {dns_result.error}"
-                )
-                return
-            
-            # Run HTTP, TLS, Email probes in parallel
-            http_results = await http_probe.probe_both(fqdn)
-            tls_result = await self.tls_probe.probe(fqdn)
-            
-            # Email probes only for apex domain (not subdomains)
-            if fqdn == self.domain or fqdn.count('.') <= 1:
-                email_result = await self.email_probe.probe_all(fqdn)
-            else:
-                email_result = None
-            
-            # Build probe_data structure expected by evaluator
-            # WHY: Evaluator expects ProbeResult objects with .success, .data, .error attributes
-            #      NOT just data dicts - it needs to check .success before accessing .data
-            probe_data = {
-                'dns': dns_result if dns_result else None,
-                'http': http_results.get('http') if http_results.get('http') else None,
-                'https': http_results.get('https') if http_results.get('https') else None,
-                'tls': tls_result if tls_result else None,
-                'email': email_result if email_result else {}
-            }
-        
+        # Run DNS probe first
+        dns_result = await self.dns_probe.resolve(fqdn)
+
+        if not dns_result.success:
+            # DNS failed - target doesn't exist
+            logger.warning(f"DNS failed for {fqdn}: {dns_result.error}")
+            self.state_mgr.mark_scan_complete(
+                fqdn,
+                success=False,
+                error_msg=f"DNS resolution failed: {dns_result.error}"
+            )
+            return
+
+        # Run HTTP, TLS, Email probes in parallel
+        http_results = await self.http_probe.probe_both(fqdn)
+        tls_result = await self.tls_probe.probe(fqdn)
+
+        # Email probes only for apex domain (not subdomains)
+        if fqdn == self.domain or fqdn.count('.') <= 1:
+            email_result = await self.email_probe.probe_all(fqdn)
+        else:
+            email_result = None
+
+        # Build probe_data structure expected by evaluator
+        # WHY: Evaluator expects ProbeResult objects with .success, .data, .error attributes
+        #      NOT just data dicts - it needs to check .success before accessing .data
+        probe_data = {
+            'dns': dns_result if dns_result else None,
+            'http': http_results.get('http') if http_results.get('http') else None,
+            'https': http_results.get('https') if http_results.get('https') else None,
+            'tls': tls_result if tls_result else None,
+            'email': email_result if email_result else {}
+        }
+
         # Phase 2: Evaluate security checks
         try:
             # Smart profiling: evaluate only recommended checks
             if self.profiler and profile_info:
                 # Filter checks based on profile recommendations
                 check_results = await self.evaluator.evaluate_selective_async(
-                    fqdn, probe_data, 
+                    fqdn, probe_data,
                     should_run_check=lambda check_name: self.profiler.should_run_check(fqdn, check_name)
                 )
-                
+
                 # Log skipped checks
                 all_checks = self.evaluator.get_all_check_names() if hasattr(self.evaluator, 'get_all_check_names') else []
                 skipped = [c for c in all_checks if not self.profiler.should_run_check(fqdn, c)]
@@ -330,14 +370,14 @@ class ScanWorker:
                 error_msg=f"Check evaluation failed: {e}"
             )
             return
-        
+
         # Convert to dicts for storage
         check_dicts = [result.to_dict() for result in check_results]
-        
+
         # Phase 3: Compute score
         score = self.scoring_model.score_subdomain(fqdn, check_results)
         overall_score = score.pass_rate if score else 0.0
-        
+
         # Phase 4: Persist results
         self.state_mgr.save_scan_result(
             fqdn=fqdn,
@@ -345,52 +385,53 @@ class ScanWorker:
             check_results=check_dicts,
             overall_score=overall_score
         )
-        
+
         # Mark scan complete (schedules next scan based on policy)
         self.state_mgr.mark_scan_complete(fqdn, success=True)
-        
+
         # Accumulate results for export
-        for result in check_results:
-            result_dict = result.to_dict()
-            result_dict['run_id'] = self.run_id
-            self.all_results.append(result_dict)
-        
+        async with self._stats_lock:
+            for result in check_results:
+                result_dict = result.to_dict()
+                result_dict['run_id'] = self.run_id
+                self.all_results.append(result_dict)
+
         logger.debug(f"✓ Scanned {fqdn}: {len(check_results)} checks, score={overall_score:.1f}")
-    
+
     def stop(self):
         """Stop scanner worker gracefully."""
         logger.info("Stopping scanner worker...")
         self._running = False
-    
+
     def is_running(self) -> bool:
         """Check if scanner is running."""
         return self._running
-    
+
     def get_stats(self) -> Dict[str, int]:
         """Get scanner statistics."""
         return {
             'scanned': self.scanned_count,
             'errors': self.error_count
         }
-    
+
     def get_all_results(self) -> List[Dict[str, Any]]:
         """Get all accumulated results for export."""
         return self.all_results
 
 
-async def run_scanner_worker(domain: str, state_mgr: StateManager, config: Config, 
+async def run_scanner_worker(domain: str, state_mgr: StateManager, config: Config,
                              run_id: str, continuous: bool = False):
     """Run scanner worker.
-    
+
     WHY standalone function: Can be run as separate task/process.
-    
+
     Args:
         domain: Base domain
         state_mgr: Shared state manager
         config: Configuration
         run_id: Current scan run ID
         continuous: Whether to keep polling for new jobs
-    
+
     Returns:
         ScanWorker instance (for results export)
     """
