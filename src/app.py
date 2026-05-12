@@ -40,16 +40,16 @@ logger = logging.getLogger(__name__)
 
 async def main_async(config: Config):
     """Main async execution coordinator.
-    
+
     WHY async: Both enumeration and scanning are I/O-bound (DNS, HTTP, TLS).
     Running them in parallel maximizes throughput.
-    
+
     Returns:
         dict with execution results
     """
     start_time = datetime.now(timezone.utc).replace(tzinfo=None)
     run_id = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    
+
     logger.info("="*60)
     logger.info("Security Scanner with Persistent State Management")
     logger.info("="*60)
@@ -58,7 +58,7 @@ async def main_async(config: Config):
     logger.info(f"State DB: {config.state_dir / config.domain / 'state.db'}")
     logger.info(f"Rescan policy: {config.rescan_hours}h")
     logger.info("="*60)
-    
+
     # Initialize state manager
     state_mgr = StateManager(
         domain=config.domain,
@@ -67,10 +67,10 @@ async def main_async(config: Config):
         error_retry_hours=config.error_retry_hours,
         lease_minutes=config.lease_minutes
     )
-    
+
     # Create scan run record
     state_mgr.create_run(run_id, config.to_dict())
-    
+
     # Reset enumeration_done flag for fresh run
     state_mgr.set_meta('enumeration_done', 'false')
 
@@ -81,11 +81,11 @@ async def main_async(config: Config):
     logger.info(f"  Eligible for scan: {stats['eligible_now']}")
     logger.info(f"  Ever scanned: {stats['ever_scanned']}")
     logger.info("")
-    
+
     # === PARALLEL EXECUTION ===
     # Strategy: Run enumeration and scanning in parallel
     # Scanner continuously polls for new targets while enumerator discovers
-    
+
     logger.info("Starting PARALLEL execution:")
     logger.info("  - Enumerator: Discovering subdomains (CT logs, DNS, SRV, PTR, crawl-lite)")
     if config.allow_active_probes:
@@ -95,7 +95,7 @@ async def main_async(config: Config):
         logger.info(
             "  - Passive-only mode: Scanner is disabled (no active probes)")
     logger.info("")
-    
+
     if config.allow_active_probes:
         # Create scanner task (runs continuously, polls DB)
         scanner_task = asyncio.create_task(
@@ -109,28 +109,50 @@ async def main_async(config: Config):
         )
     else:
         scanner_task = None
-    
+
     # Create enumerator task
     enumerator_task = asyncio.create_task(
         run_enumerator(config.domain, config.state_dir, config, state_mgr)
     )
-    
+
     # Wait for enumeration to complete
     logger.info("Waiting for enumeration to complete...")
     enum_count, method_counts = await enumerator_task
     logger.info("")
     logger.info(f"Enumeration complete: {enum_count} subdomains discovered")
-    
+
     # Show stats after enumeration
     stats = state_mgr.get_stats()
     logger.info(f"Post-enumeration state:")
     logger.info(f"  Total candidates: {stats['total_candidates']}")
     logger.info(f"  Eligible for scan: {stats['eligible_now']}")
     logger.info("")
-    
+
     if config.allow_active_probes and scanner_task:
         # Wait for scanner to finish processing all eligible targets
         logger.info("Waiting for scanner to complete remaining targets...")
+        wait_started_at = datetime.now(timezone.utc)
+        heartbeat_seconds = 15
+
+        while not scanner_task.done():
+            try:
+                # Wait in short windows so we can emit periodic progress heartbeats.
+                await asyncio.wait_for(asyncio.shield(scanner_task), timeout=heartbeat_seconds)
+            except asyncio.TimeoutError:
+                live_stats = state_mgr.get_stats()
+                queue = live_stats.get('queue_by_status', {})
+                elapsed_seconds = int((datetime.now(timezone.utc) - wait_started_at).total_seconds())
+                logger.info(
+                    "Scanner still running (%ss elapsed) | eligible=%s | scanning=%s | queued=%s | never=%s | error=%s | scanned=%s",
+                    elapsed_seconds,
+                    live_stats.get('eligible_now', 0),
+                    queue.get('scanning', 0),
+                    queue.get('queued', 0),
+                    queue.get('never', 0),
+                    queue.get('error', 0),
+                    queue.get('scanned', 0),
+                )
+
         scanner_worker = await scanner_task
         scanned_count = scanner_worker.scanned_count
         error_count = scanner_worker.error_count
@@ -156,20 +178,20 @@ async def main_async(config: Config):
         )
         state_mgr.set_meta('enumeration_done', 'true')
     state_mgr.finish_run(run_id)
-    
+
     # === EXPORT RESULTS ===
     logger.info("")
     logger.info("Exporting results...")
-    
+
     # Create output directory
     output_dir = config.out_dir / config.domain / datetime.now(timezone.utc).strftime("%Y-%m-%d") / run_id
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Export candidates list
     candidates_csv = output_dir / "discovered_candidates.csv"
     state_mgr.export_candidates_csv(candidates_csv)
     logger.info(f"Exported candidates to {candidates_csv}")
-    
+
     # Export method counts
     if method_counts:
         method_counts_csv = output_dir / "enumeration_method_counts.csv"
@@ -180,7 +202,7 @@ async def main_async(config: Config):
             for method, count in sorted(method_counts.items()):
                 writer.writerow([method, count])
         logger.info(f"Exported enumeration methods to {method_counts_csv}")
-    
+
     # Export aggregated scan results (subdomain-level scores)
     # Generate CSVs even if scanned_count=0 (will have headers only)
     subdomain_results_csv = output_dir / "subdomain_metrics.csv"
@@ -287,11 +309,11 @@ async def main_async(config: Config):
         )
         logger.info(
             f"Generated empty research CSVs (headers only) in {writer.get_output_dir()}")
-    
+
     # Write run metadata JSON
     end_time = datetime.utcnow()
     duration = (end_time - start_time).total_seconds()
-    
+
     # Final summary
     logger.info("="*60)
     logger.info("Scan Complete!")
@@ -301,7 +323,7 @@ async def main_async(config: Config):
     logger.info(f"  Errors: {error_count}")
     logger.info(f"  Output: {output_dir}")
     logger.info("="*60)
-    
+
     return {
         'success': True,
         'run_id': run_id,
@@ -318,16 +340,16 @@ def main():
     try:
         # Load configuration
         config = Config()
-        
+
         # Set up logging
         log_dir = config.out_dir / config.domain / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_file = log_dir / f"scan_{timestamp_str()}.log"
         setup_logging(log_file=log_file, level=logging.INFO)
-        
+
         # Run async main
         result = asyncio.run(main_async(config))
-        
+
         # Print summary
         if result['success']:
             print(f"\n✓ Scan complete for {config.domain}")
@@ -341,16 +363,16 @@ def main():
         else:
             print(f"\n✗ Scan failed")
             return 1
-    
+
     except ValueError as e:
         print(f"\n✗ Configuration error: {e}")
         print("\nCreate .env file with: DOMAIN=your-domain.com")
         return 1
-    
+
     except KeyboardInterrupt:
         print("\n\n✗ Scan interrupted by user")
         return 130
-    
+
     except Exception as e:
         logging.error(f"Unexpected error: {e}", exc_info=True)
         print(f"\n✗ Unexpected error: {e}")
