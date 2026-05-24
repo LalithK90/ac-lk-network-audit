@@ -79,12 +79,12 @@
 
 %% Abstract
 \begin{abstract}
-National-scale measurements of publicly visible domain infrastructure remain limited, particularly in developing-country contexts where cybersecurity policy is often shaped in the absence of baseline evidence. This study addresses that gap through a passive enumeration audit of Sri Lankan domain infrastructure across 16 second-level domain categories managed under \texttt{nic.lk}. Using Certificate Transparency logs and public vulnerability intelligence sources, we identify 10{,}638 discovered candidates and examine their distribution across government, education, commercial, academic, and civil-society sectors. The aggregate output shows strong source concentration, with Certificate Transparency contributing 10{,}558 candidates (99.25\%), HackerTarget contributing 104 (0.98\%), apex-domain aggregation contributing 16 (0.15\%), and Cert Spotter contributing 1 (0.01\%). The study provides a reproducible national baseline for Sri Lanka's externally visible naming infrastructure and offers an empirical foundation for longitudinal monitoring, governance-oriented prioritization, and future authorized active security assessment.
+National-scale measurements of publicly visible domain infrastructure remain limited, particularly in developing-country contexts where cybersecurity policy is often shaped in the absence of baseline evidence. This study addresses that gap through a passive enumeration audit of Sri Lankan domain infrastructure across 16 second-level domain categories managed under \texttt{nic.lk}. Using Certificate Transparency logs and public vulnerability intelligence sources, we identify 10{,}638 discovered candidates and examine their distribution across government, education, commercial, academic, and civil-society sectors. The aggregate output shows strong source concentration, with Certificate Transparency contributing 10{,}558 candidates (99.25\%), HackerTarget contributing 104 (0.98\%), apex-domain aggregation contributing 16 (0.15\%), and Cert Spotter contributing 1 (0.01\%); percentages reflect pre-deduplication source counts. The study provides a reproducible national baseline for Sri Lanka's externally visible naming infrastructure and offers an empirical foundation for longitudinal monitoring, governance-oriented prioritization, and future authorized active security assessment.
 \end{abstract}
 
 %%Research highlights
 \begin{highlights}
-\item National-scale passive baseline across all 16 Sri Lankan second-level domain categories under \texttt{nic.lk}
+\item National-scale passive baseline across all 16 Sri Lankan second-level domain categories under \texttt{nic.lk} (passive-only)
 \item 10,638 discovered candidates identified through legally conservative passive public-data collection
 \item Certificate Transparency dominates passive discovery (10,558 candidates; 99.25\%)
 \item Educational infrastructure is the largest sectoral share (\texttt{sch.lk}: 4,235; 39.81\%)
@@ -93,7 +93,7 @@ National-scale measurements of publicly visible domain infrastructure remain lim
 
 %% Keywords
 \begin{keyword}
-Passive enumeration \sep Certificate Transparency \sep Internet measurement \sep Domain infrastructure \sep Sri Lanka
+Passive enumeration \sep Certificate Transparency \sep Subdomain enumeration \sep Internet measurement \sep Attack surface \sep Cybersecurity governance \sep Developing nations
 \end{keyword}
 
 \end{frontmatter}
@@ -109,7 +109,7 @@ Passive enumeration \sep Certificate Transparency \sep Internet measurement \sep
 
 National cybersecurity posture fundamentally depends on visibility into critical infrastructure. For internet-connected organizations, the ``attack surface''—the set of publicly discoverable infrastructure components—directly correlates with exposure to reconnaissance, exploitation, and compromise \cite{durumeric2013zmap}. Yet systematic, nation-wide assessment of domain infrastructure remains uncommon in developing nations, where cybersecurity governance often lacks quantitative evidence.
 
-Sri Lanka manages 16 distinct top-level domain (TLD) categories through the Sri Lanka Domain Registry (nic.lk), collectively hosting thousands of government agencies, academic institutions, commercial entities, and civil society organizations. To date, no comprehensive public audit of this infrastructure exists. This gap creates two distinct problems:
+Sri Lanka manages 16 distinct second-level domain (SLD) categories through the Sri Lanka Domain Registry (nic.lk), collectively hosting thousands of government agencies, academic institutions, commercial entities, and civil society organizations. To date, no comprehensive public audit of this infrastructure exists. This gap creates two distinct problems:
 
 \begin{enumerate}
     \item \textbf{Governance blind spot:} Policy makers lack data on the scale and distribution of national internet infrastructure.
@@ -148,15 +148,15 @@ This work makes four distinct contributions to the cybersecurity research litera
 
 Domain enumeration—the process of discovering subdomains of a given domain—has been extensively studied in security research. Durumeric et al. \cite{durumeric2013zmap} pioneered large-scale internet scanning methodologies, establishing the technical foundations for passive reconnaissance. Their work on Certificate Transparency (CT) logs demonstrated that SSL/TLS certificate issuance logs represent a rich source of subdomain discovery, inherently public by design but previously underutilized for security assessment \cite{rfc6962}.
 
-\textbf{Active vs. Passive Enumeration Approaches:} The domain enumeration literature broadly divides into active and passive methodologies. Active techniques include DNS brute-forcing, DNS zone transfers (AXFR requests), and HTTP crawling. These methods generate network traffic directed at target infrastructure, raising legal and ethical concerns in many jurisdictions \cite{villegas2018detecting}.
+\textbf{Active vs. Passive Enumeration Approaches:} The domain enumeration literature broadly divides into active and passive methodologies. Active techniques include DNS brute-forcing, DNS zone transfers (AXFR requests), and HTTP crawling. These methods generate network traffic directed at target infrastructure, raising legal and ethical concerns in many jurisdictions \cite{kathrine2020comparative,dittrich2012community}.
 
-Passive techniques, by contrast, rely exclusively on observation of public data sources without direct interaction with target infrastructure. Zhang et al. \cite{zhang2019measuring} conducted comparative analysis showing that passive methods achieve 85-95\% of the coverage of active methods while eliminating legal risk and infrastructure load concerns. Certificate Transparency logs emerge as the dominant passive source, particularly for modern HTTPS-enabled infrastructure.
+Passive techniques, by contrast, rely exclusively on observation of public data sources without direct interaction with target infrastructure. Scheitle et al. \cite{scheitle2018rise} demonstrated that Certificate Transparency logs constitute a rich and independent passive source: their analysis found 18.8~million FQDNs not present in the Rapid7 Sonar active-scan dataset, establishing CT logs as a principal passive discovery mechanism that complements rather than simply approximates active enumeration. Certificate Transparency logs emerge as the dominant passive source for modern HTTPS-enabled infrastructure, while legal risk and infrastructure load concerns make active enumeration inappropriate without explicit authorization.
 
 \subsection{National-Scale Infrastructure Assessment}
 
 Quantifying national internet infrastructure at scale remains rare in published literature, particularly for developing nations. Durumeric et al. \cite{durumeric2013search} conducted periodic internet-wide scans using ZMap, surveying all IPv4 addresses for specific services. While groundbreaking for understanding global service deployment, their approach focuses on IP-level infrastructure rather than domain-level organization \cite{bailey2010search}.
 
-Most prior domain enumeration research focuses on generic TLDs (.com, .org, .net) due to their global reach and commercial significance. Country-code TLDs, managed by national registries, remain understudied despite representing critical national infrastructure \cite{yallouz2014mapping,gasser2019comparative}.
+Most prior domain enumeration research focuses on generic TLDs (.com, .org, .net) due to their global reach and commercial significance. Country-code TLDs, managed by national registries, remain understudied despite representing critical national infrastructure \cite{gasser2019comparative,scheitle2018rise}.
 
 \textbf{Research Gap:} To our knowledge, no prior published work conducts systematic domain enumeration across all TLD categories for a sovereign nation using passive-only methods. This gap is particularly acute for developing nations, where cybersecurity research capacity is limited and baseline infrastructure metrics are absent.
 
@@ -175,7 +175,7 @@ This work strictly adheres to passive methodology, ensuring compliance with Sri 
 \section{Methodology}
 \label{sec:methodology}
 
-This study employed a cross-sectional observational design to characterise Sri Lanka's externally visible domain naming infrastructure using only passive public data sources.
+This study employed a cross-sectional observational design to characterize Sri Lanka's externally visible domain naming infrastructure using only passive public data sources.
 
 \subsection{Scope \& Data Sources}
 
@@ -183,58 +183,58 @@ This study enumerates subdomains across all 16 Sri Lankan TLDs managed by nic.lk
 
 \begin{table}[H]
 \centering
-\caption{Sri Lankan Top-Level Domains Analyzed}
+\caption{Sri Lankan Second-Level Domains Enumerated}
 \label{tab:tlds}
 \begin{tabular}{|l|l|l|l|}
 \hline
-TLD & Category & Example & Status \\
+SLD & Category & Example & Status \\
 \hline
-gov.lk & Government & ministry.gov.lk & Scanned \\
+gov.lk & Government & ministry.gov.lk & Enumerated \\
 \hline
-ac.lk & Academic & university.ac.lk & Scanned \\
+ac.lk & Academic & university.ac.lk & Enumerated \\
 \hline
-com.lk & Commercial & company.com.lk & Scanned \\
+com.lk & Commercial & company.com.lk & Enumerated \\
 \hline
-edu.lk & Educational & school.edu.lk & Scanned \\
+edu.lk & Educational & school.edu.lk & Enumerated \\
 \hline
-sch.lk & Schools & primary.sch.lk & Scanned \\
+sch.lk & Schools & primary.sch.lk & Enumerated \\
 \hline
-org.lk & Organizations & ngo.org.lk & Scanned \\
+org.lk & Organizations & ngo.org.lk & Enumerated \\
 \hline
-net.lk & Network & isp.net.lk & Scanned \\
+net.lk & Network & isp.net.lk & Enumerated \\
 \hline
-ngo.lk & NGOs & charity.ngo.lk & Scanned \\
+ngo.lk & NGOs & charity.ngo.lk & Enumerated \\
 \hline
-hotel.lk & Hotels & resort.hotel.lk & Scanned \\
+hotel.lk & Hotels & resort.hotel.lk & Enumerated \\
 \hline
-ltd.lk & Limited Companies & business.ltd.lk & Scanned \\
+ltd.lk & Limited Companies & business.ltd.lk & Enumerated \\
 \hline
-assn.lk & Associations & club.assn.lk & Scanned \\
+assn.lk & Associations & club.assn.lk & Enumerated \\
 \hline
-grp.lk & Groups & group.grp.lk & Scanned \\
+grp.lk & Groups & group.grp.lk & Enumerated \\
 \hline
-int.lk & International & org.int.lk & Scanned \\
+int.lk & International & org.int.lk & Enumerated \\
 \hline
-me.lk & Personal & person.me.lk & Scanned \\
+me.lk & Personal & person.me.lk & Enumerated \\
 \hline
-soc.lk & Societies & society.soc.lk & Scanned \\
+soc.lk & Societies & society.soc.lk & Enumerated \\
 \hline
-web.lk & Web Services & service.web.lk & Scanned \\
+web.lk & Web Services & service.web.lk & Enumerated \\
 \hline
 \end{tabular}
 \end{table}
 
 \textbf{Passive Data Sources:}
 \begin{itemize}
-    \item Certificate Transparency logs (crt.sh) - public SSL/TLS certificate database
-    \item Public vulnerability databases (HackerTarget, ThreatCrowd)
+    \item Certificate Transparency logs (\texttt{crt.sh}): public SSL/TLS certificate issuance database
+    \item Public vulnerability intelligence databases (HackerTarget, ThreatCrowd)
     \item Public registration and contextual metadata where available
-    \item Seed data from public sources (CSV/XLSX format)
+    \item Apex-domain seed data aggregated from public sources
 \end{itemize}
 
 \subsection{Enumeration Techniques}
 
-\textbf{System Architecture Overview:} The Domain Security Audit framework employs a modular architecture consisting of three primary components as illustrated in Figure \ref{fig:architecture}: (1) \textbf{Data Acquisition Layer} - retrieves subdomain records from passive sources; (2) \textbf{Processing \& Normalization Layer} - deduplicates and standardizes discovered subdomains; (3) \textbf{Analysis \& Reporting Layer} - generates statistics and visualizations.
+\textbf{System Architecture Overview:} The Domain Security Audit framework employs a modular architecture consisting of three primary components as illustrated in Figure \ref{fig:architecture}: (1) \textbf{Data Acquisition Layer} --- retrieves subdomain records from passive sources; (2) \textbf{Processing \& Normalization Layer} --- deduplicates and standardizes discovered subdomains; (3) \textbf{Analysis \& Reporting Layer} --- generates statistics and visualizations.
 
 \begin{figure}[ht]
 \centering
@@ -304,7 +304,7 @@ The aggregate publication package also includes a confidence-distribution visual
 
 \subsection{Study Design}
 
-\textbf{Phase 1 - Data Collection (January 2026):}
+\textbf{Phase~1 --- Data Collection (January 2026):}
 \begin{enumerate}
     \item Query CT logs for all certificates issued for each .lk domain
     \item Cross-reference with public vulnerability databases
@@ -312,7 +312,7 @@ The aggregate publication package also includes a confidence-distribution visual
     \item Record source provenance and aggregate discovery statistics
 \end{enumerate}
 
-\textbf{Phase 2 - Analysis (January 2026):}
+\textbf{Phase~2 --- Analysis (January 2026):}
 \begin{enumerate}
     \item Calculate per-domain and aggregate statistics
     \item Analyze method coverage overlap
@@ -320,7 +320,7 @@ The aggregate publication package also includes a confidence-distribution visual
     \item Identify patterns and outliers
 \end{enumerate}
 
-\textbf{Phase 3 - Reporting (January 2026):}
+\textbf{Phase~3 --- Reporting (January 2026):}
 \begin{enumerate}
     \item Generate visualizations and summary tables
     \item Document findings and implications
@@ -362,19 +362,19 @@ Table \ref{tab:summary} reproduces the aggregate run overview exported for the p
 \hline
 Metric & Value \\
 \hline
-Total Domains Scanned & 16 TLDs \\
+Total SLD Groups Enumerated & 16 \\
 \hline
-Runs Included & 16 \\
+Enumeration Runs & 16 \\
 \hline
 Total Discovered Candidates & 10,638 \\
 \hline
-Total Observations & 0 \\
+Protocol-Level Observations & 0 (passive-only; no active scanning) \\
 \hline
 Aggregate Run Date & 2026-04-18 \\
 \hline
 Methodology & Passive-only \\
 \hline
-Target Scan Status & never for all candidates \\
+Active Scan Status & Not executed (Phase~1 scope) \\
 \hline
 Enumeration Methods Configured & 13 \\
 \hline
@@ -500,7 +500,7 @@ The principal finding of this study is that a national passive-only workflow can
 
 A second important finding is the strong dependence of the baseline on Certificate Transparency data. CT-derived discovery accounted for 99.25\% of aggregate candidates, while all other passive sources together contributed less than 1\%. This pattern suggests that CT infrastructure is currently the principal passive discovery mechanism for Sri Lankan domain measurement, but it also indicates that the resulting baseline is shaped by the visibility properties of certificate issuance rather than by validated service availability.
 
-The domain-group distribution is also highly uneven. School, commercial, higher-education, governmental, and organizational groups accounted for the large majority of discovered candidates, whereas several categories remained very small. For governance purposes, this concentration suggests where future validated measurement and coordination efforts are most likely to yield national benefit, even though the passive baseline alone does not establish service criticality or security quality.
+The domain-group distribution is also highly uneven. School, commercial, higher-education, governmental, and organizational groups accounted for the vast majority of discovered candidates, whereas several categories remained very small. For governance purposes, this concentration suggests where future validated measurement and coordination efforts are most likely to yield national benefit, even though the passive baseline alone does not establish service criticality or security quality.
 
 \textbf{Policy Considerations:}
 \begin{itemize}
@@ -538,8 +538,8 @@ The dominance of Certificate Transparency logs (99.25\%) reflects the passive en
 
 \textbf{Internal Validity - Data Source Completeness:}
 \begin{itemize}
-    \item \textbf{CT Log Completeness:} We queried crt.sh which aggregates multiple CT logs. Browser trust requirements mandate logging in major logs (all aggregated by crt.sh).
-    \item \textbf{Wildcard Certificate Handling:} Wildcard certificates (*.example.lk) don't enumerate specific subdomains.
+    \item \textbf{CT Log Completeness:} We queried crt.sh which aggregates multiple CT logs. Browser trust requirements mandate certificate submission to major CT logs (all aggregated by crt.sh).
+    \item \textbf{Wildcard Certificate Handling:} Wildcard certificates (\texttt{*.example.lk}) do not enumerate specific subdomains.
     \item \textbf{Certificate Visibility vs. Operational State:} Public evidence of certificate issuance does not confirm that a service is currently reachable or operational.
 \end{itemize}
 
@@ -579,16 +579,11 @@ Following publication and stakeholder engagement, we propose a second phase cont
 
 \subsection{Longitudinal Monitoring}
 
-Annual re-enumeration to track subdomain growth/churn, sector-specific trends, effectiveness of security policy interventions, and emerging threat patterns.
+Annual re-enumeration of all 16 Sri Lankan second-level domain groups would enable year-on-year analysis of naming growth, sectoral churn, and changes in passive-source visibility. Repeated measurement cycles would allow researchers and policymakers to detect the emergence of new sub-sectors, the abandonment of previously active domains, and the impact of national cybersecurity policy interventions on the externally visible infrastructure footprint. Establishing a regular cadence --- for example, quarterly passive sweeps anchored to the January~2026 baseline reported here --- would transform the present cross-sectional snapshot into a longitudinal observational series suitable for trend analysis and evidence-based governance.
 
 \subsection{Community Engagement and Research Reproducibility}
 
 \textbf{Reproducibility Framework:} This research employs a fully reproducible, open methodology. The scanning platform (Domain Security Audit, Python 3.10+) is publicly available at: \url{https://github.com/LalithK90/domain-security-audit}. All passive data sources are freely accessible. The GitHub repository contains complete source code, methodology documentation, configuration guidelines, and analysis scripts to ensure complete transparency and peer validation.
-
-\section{Data and Code Availability}
-\label{sec:data}
-
-All source code, analysis scripts, configuration files, and documentation are available at: \url{https://github.com/LalithK90/domain-security-audit}. The repository includes the complete Domain Security Audit toolkit with step-by-step instructions for reproducing this analysis. Raw data (subdomain lists per TLD category) and visualization outputs are available upon request from the corresponding author.
 
 \section{Conclusion}
 \label{sec:conclusion}
@@ -598,6 +593,14 @@ This study investigated Sri Lanka's externally visible domain naming infrastruct
 The results also showed that the baseline was overwhelmingly shaped by Certificate Transparency data, with only marginal supplementary yield from other passive sources. This finding matters because it clarifies both the value and the limit of the present approach: passive public data can provide broad national visibility quickly and legally, but they do not by themselves establish current service availability or security posture.
 
 This work contributes a reproducible Phase~1 baseline for Sri Lankan national infrastructure measurement and provides a defensible starting point for longitudinal monitoring. The findings should, however, be interpreted with caution because the aggregate run contains no protocol-level observations and therefore cannot support direct claims about operational security quality. Future studies should repeat the passive measurement cycle over time and, where appropriate authorization is available, extend it with active validation of HTTPS/TLS, email security, DNS security, and related controls.
+
+\section*{Data and Code Availability}
+
+All source code, analysis scripts, configuration files, and documentation are available at: \url{https://github.com/LalithK90/domain-security-audit}. The repository includes the complete Domain Security Audit toolkit with step-by-step instructions for reproducing this analysis. Raw data (subdomain lists per TLD category) and visualization outputs are available upon request from the corresponding author.
+
+\section*{Declaration of Competing Interests}
+
+The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
 
 \section*{Author Contributions}
 
@@ -609,7 +612,7 @@ This research did not receive any specific grant from funding agencies in the pu
 
 \section*{Declaration of Generative AI and AI-Assisted Technologies}
 
-During the preparation of this work the author(s) used the following AI-assisted technologies:
+During the preparation of this work, the author(s) used the following AI-assisted technologies:
 
 \begin{enumerate}
     \item \textbf{GitHub Copilot} for code generation, validation, and software engineering tasks
